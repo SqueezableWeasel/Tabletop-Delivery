@@ -1,0 +1,16 @@
+{
+  "pytorch": {
+    "metrics/precision(B)": 0.9840092592485781,
+    "metrics/recall(B)": 1.0,
+    "metrics/mAP50(B)": 0.995,
+    "metrics/mAP50-95(B)": 0.8671233909132348,
+    "fitness": 0.8671233909132348
+  },
+  "int8_cpu": {
+    "metrics/precision(B)": 0.9858799451467555,
+    "metrics/recall(B)": 1.0,
+    "metrics/mAP50(B)": 0.995,
+    "metrics/mAP50-95(B)": 0.8165415575396825,
+    "fitness": 0.8165415575396825
+  }
+}

@@ -14,6 +14,9 @@ else()
   target_compile_options(tabletop_core PRIVATE -Wall -Wextra -Wpedantic) # Enable common, extra, and pedantic diagnostics on GCC/Clang.
 endif()
 enable_testing() # Register this directory's tests with CTest.
+add_executable(yolo_test tests/yolo_test.cpp) # Exercise quantization, NMS, letterbox inversion, and independent temporal evidence without a TPU.
+target_link_libraries(yolo_test PRIVATE tabletop_core)
+add_test(NAME yolo COMMAND yolo_test)
 add_executable(planner_test tests/planner_test.cpp) # Always build geometry, behavioral, and model-table tests. They need no devices. Build independent continuous-geometry and obstacle-sweep checks.
 target_link_libraries(planner_test PRIVATE tabletop_core) # Link only the portable core into the geometry test.
 add_test(NAME planner COMMAND planner_test) # Register the geometry executable as the planner CTest case.
@@ -28,6 +31,9 @@ if(TABLETOP_BUILD_APP) # Add OpenCV application/configuration/presentation targe
   add_library(tabletop_ui STATIC src/config.cpp src/view.cpp src/calibration_math.cpp) # Share configuration, measured calibration fitting, and presentation helpers with headless tests.
   target_include_directories(tabletop_ui PUBLIC ${OpenCV_INCLUDE_DIRS}) # Export OpenCV include paths required by the public application interfaces.
   target_link_libraries(tabletop_ui PUBLIC tabletop_core ${OpenCV_LIBS}) # Propagate core and OpenCV libraries to application/test consumers.
+  add_executable(evaluation_ui_test tests/evaluation_ui_test.cpp) # Verify evaluation CSV/JSON and render both modes using explicitly synthetic detections.
+  target_link_libraries(evaluation_ui_test PRIVATE tabletop_ui)
+  add_test(NAME evaluation_ui COMMAND evaluation_ui_test "${CMAKE_CURRENT_BINARY_DIR}/evaluation_fixture")
   add_executable(tabletop_delivery src/main.cpp src/calibration.cpp) # Build delivery coordination and interactive calibration with the selected hardware backend.
   target_link_libraries(tabletop_delivery PRIVATE tabletop_ui Threads::Threads) # Link presentation, core, and platform thread support into the application.
   if(TABLETOP_HARDWARE) # Select live camera/LiDAR/inference implementation and its platform dependencies.
@@ -64,6 +70,7 @@ if(TABLETOP_BUILD_APP) # Add OpenCV application/configuration/presentation targe
   target_link_libraries(calibration_test PRIVATE tabletop_ui) # Exercise production fitting, persistence, and the capture display in memory.
   add_test(NAME calibration COMMAND calibration_test) # Check sensor-origin separation, stable poses, invalid capture rejection, and configuration roundtrip.
   add_test(NAME app_help COMMAND tabletop_delivery --help) # Verify that usage exits successfully without opening hardware or requiring a configuration file.
+  add_test(NAME evaluation_cli COMMAND "${CMAKE_COMMAND}" "-DAPP=$<TARGET_FILE:tabletop_delivery>" -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/evaluation_cli_test.cmake")
   add_test(NAME app_demo COMMAND tabletop_delivery --demo --headless --seconds 1 --config "${CMAKE_CURRENT_SOURCE_DIR}/delivery_config.json" --output "${CMAKE_CURRENT_BINARY_DIR}/test_runs") # Exercise one second of bounded headless simulation with explicit configuration and output paths.
   add_test(NAME app_resources COMMAND "${CMAKE_COMMAND}" # Exercise local-resource startup independently from this source directory. Run the standalone-resource and missing-config checks through a separate CMake test script.
     "-DAPP=$<TARGET_FILE:tabletop_delivery>"

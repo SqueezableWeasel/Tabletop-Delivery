@@ -1,0 +1,997 @@
+{
+  "model": "YOLOv8n COCO-80",
+  "ultralytics": "8.3.228",
+  "weights_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+  "input_size": 320,
+  "device": "CPU float32",
+  "person_threshold": 0.35,
+  "sample_interval_s": 2,
+  "limitations": [
+    "Screen recordings include the existing blue marker and display overlays.",
+    "No manual ground truth; detection presence is not accuracy.",
+    "This does not measure Edge TPU speed or INT8 accuracy."
+  ],
+  "clips": [
+    {
+      "name": "normal-lane",
+      "samples": 17,
+      "samples_with_person": 6,
+      "frames": [
+        {
+          "second": 1,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 3,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 5,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 7,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 9,
+          "person_count": 1,
+          "best_person_score": 0.753221869468689,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.7532,
+              "xyxy": [
+                0.1,
+                2.76,
+                372.14,
+                297.48
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.2262,
+              "xyxy": [
+                222.95,
+                167.75,
+                374.63,
+                293.41
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.185,
+              "xyxy": [
+                0.01,
+                165.48,
+                397.76,
+                362.73
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 11,
+          "person_count": 1,
+          "best_person_score": 0.859711229801178,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.8597,
+              "xyxy": [
+                0.75,
+                4.51,
+                340.14,
+                292.88
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1517,
+              "xyxy": [
+                6.32,
+                285.88,
+                393.12,
+                355.74
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1129,
+              "xyxy": [
+                257.59,
+                286.47,
+                394.35,
+                347.03
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 13,
+          "person_count": 1,
+          "best_person_score": 0.8816123008728027,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.8816,
+              "xyxy": [
+                0.85,
+                4.43,
+                352.08,
+                290.13
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1932,
+              "xyxy": [
+                6.83,
+                280.73,
+                396.22,
+                365.63
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 15,
+          "person_count": 1,
+          "best_person_score": 0.8564547896385193,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.8565,
+              "xyxy": [
+                0.59,
+                4.08,
+                344.73,
+                293.97
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1622,
+              "xyxy": [
+                2.58,
+                295.33,
+                392.57,
+                359.82
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1476,
+              "xyxy": [
+                280.18,
+                289.51,
+                394.21,
+                348.27
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 17,
+          "person_count": 1,
+          "best_person_score": 0.7664328217506409,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.7664,
+              "xyxy": [
+                0.2,
+                1.41,
+                372.55,
+                311.7
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.2355,
+              "xyxy": [
+                285.83,
+                287.84,
+                408.2,
+                357.27
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 19,
+          "person_count": 1,
+          "best_person_score": 0.7334778904914856,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.7335,
+              "xyxy": [
+                1.1,
+                3.39,
+                390.42,
+                297.03
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1315,
+              "xyxy": [
+                0.13,
+                267.46,
+                401.6,
+                359.05
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 21,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.5709,
+              "xyxy": [
+                316.7,
+                234.71,
+                398.99,
+                349.65
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 23,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.7303,
+              "xyxy": [
+                319.66,
+                233.72,
+                397.51,
+                348.34
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 25,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.708,
+              "xyxy": [
+                315.01,
+                234.12,
+                399.38,
+                351.91
+              ]
+            },
+            {
+              "class": "sink",
+              "score": 0.1035,
+              "xyxy": [
+                0.79,
+                315.06,
+                638.21,
+                477.47
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 27,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.6433,
+              "xyxy": [
+                316.48,
+                234.98,
+                398.78,
+                350.3
+              ]
+            },
+            {
+              "class": "sink",
+              "score": 0.1002,
+              "xyxy": [
+                1.37,
+                315.54,
+                638.28,
+                477.84
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 29,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.6693,
+              "xyxy": [
+                316.12,
+                234.85,
+                398.96,
+                350.93
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 31,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "sink",
+              "score": 0.2313,
+              "xyxy": [
+                0.62,
+                317.91,
+                638.03,
+                478.57
+              ]
+            },
+            {
+              "class": "fire hydrant",
+              "score": 0.1241,
+              "xyxy": [
+                316.16,
+                235.43,
+                397.14,
+                350.69
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 33,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.669,
+              "xyxy": [
+                316.23,
+                233.48,
+                398.62,
+                349.86
+              ]
+            }
+          ],
+          "eligible_people": 0
+        }
+      ],
+      "samples_with_eligible_person": 0
+    },
+    {
+      "name": "narrow-lane",
+      "samples": 17,
+      "samples_with_person": 8,
+      "frames": [
+        {
+          "second": 1,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 3,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 5,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.2478,
+              "xyxy": [
+                89.15,
+                219.41,
+                153.24,
+                345.85
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 7,
+          "person_count": 1,
+          "best_person_score": 0.8121539354324341,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.8122,
+              "xyxy": [
+                0.27,
+                5.0,
+                278.76,
+                294.61
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 9,
+          "person_count": 1,
+          "best_person_score": 0.8741085529327393,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.8741,
+              "xyxy": [
+                0.7,
+                4.01,
+                343.25,
+                300.75
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.2346,
+              "xyxy": [
+                1.89,
+                291.28,
+                396.64,
+                357.9
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 11,
+          "person_count": 1,
+          "best_person_score": 0.8500767946243286,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.8501,
+              "xyxy": [
+                1.4,
+                2.58,
+                409.81,
+                304.03
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.147,
+              "xyxy": [
+                3.91,
+                288.66,
+                417.36,
+                362.45
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 13,
+          "person_count": 1,
+          "best_person_score": 0.8531215190887451,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.8531,
+              "xyxy": [
+                1.17,
+                1.44,
+                435.64,
+                306.58
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.2378,
+              "xyxy": [
+                316.34,
+                287.41,
+                440.44,
+                357.74
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 15,
+          "person_count": 1,
+          "best_person_score": 0.8199692964553833,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.82,
+              "xyxy": [
+                1.33,
+                2.9,
+                407.13,
+                299.26
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1499,
+              "xyxy": [
+                1.8,
+                294.78,
+                418.03,
+                360.61
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 17,
+          "person_count": 1,
+          "best_person_score": 0.730409562587738,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.7304,
+              "xyxy": [
+                0.49,
+                2.98,
+                354.78,
+                307.84
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.3288,
+              "xyxy": [
+                256.55,
+                241.12,
+                409.32,
+                346.9
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 19,
+          "person_count": 1,
+          "best_person_score": 0.7808234691619873,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.7808,
+              "xyxy": [
+                0.57,
+                2.92,
+                356.67,
+                323.51
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.3582,
+              "xyxy": [
+                248.9,
+                239.79,
+                407.96,
+                345.08
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 21,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "sink",
+              "score": 0.1747,
+              "xyxy": [
+                0.88,
+                316.41,
+                638.67,
+                477.99
+              ]
+            },
+            {
+              "class": "fire hydrant",
+              "score": 0.1101,
+              "xyxy": [
+                295.51,
+                237.83,
+                350.12,
+                337.4
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 23,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.2362,
+              "xyxy": [
+                295.29,
+                238.63,
+                350.78,
+                338.47
+              ]
+            },
+            {
+              "class": "sink",
+              "score": 0.1177,
+              "xyxy": [
+                0.07,
+                316.79,
+                639.98,
+                478.0
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 25,
+          "person_count": 1,
+          "best_person_score": 0.7845855355262756,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.7846,
+              "xyxy": [
+                0.36,
+                11.9,
+                290.44,
+                289.43
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.2411,
+              "xyxy": [
+                223.56,
+                287.61,
+                395.76,
+                348.24
+              ]
+            },
+            {
+              "class": "skateboard",
+              "score": 0.1204,
+              "xyxy": [
+                13.12,
+                286.95,
+                400.94,
+                356.35
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 27,
+          "person_count": 0,
+          "best_person_score": 0.14565050601959229,
+          "detections": [
+            {
+              "class": "person",
+              "score": 0.1457,
+              "xyxy": [
+                0.08,
+                93.95,
+                197.98,
+                285.61
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 29,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.1186,
+              "xyxy": [
+                107.85,
+                219.51,
+                171.2,
+                339.56
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 31,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.1284,
+              "xyxy": [
+                107.01,
+                219.42,
+                170.82,
+                340.49
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 33,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.1179,
+              "xyxy": [
+                103.94,
+                219.66,
+                172.89,
+                346.09
+              ]
+            }
+          ],
+          "eligible_people": 0
+        }
+      ],
+      "samples_with_eligible_person": 0
+    },
+    {
+      "name": "stop-sign",
+      "samples": 16,
+      "samples_with_person": 0,
+      "frames": [
+        {
+          "second": 1,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 3,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 5,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 7,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 9,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "stop sign",
+              "score": 0.7863,
+              "xyxy": [
+                32.58,
+                162.47,
+                221.11,
+                351.22
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 11,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "stop sign",
+              "score": 0.7203,
+              "xyxy": [
+                33.8,
+                161.84,
+                219.28,
+                352.07
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 13,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "stop sign",
+              "score": 0.7167,
+              "xyxy": [
+                33.52,
+                162.14,
+                219.07,
+                351.73
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 15,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "stop sign",
+              "score": 0.3932,
+              "xyxy": [
+                37.85,
+                160.92,
+                224.17,
+                351.67
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 17,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 19,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.1521,
+              "xyxy": [
+                266.3,
+                226.67,
+                381.45,
+                358.96
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 21,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "fire hydrant",
+              "score": 0.1462,
+              "xyxy": [
+                267.09,
+                226.53,
+                388.65,
+                356.37
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 23,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 25,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 27,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [
+            {
+              "class": "sink",
+              "score": 0.153,
+              "xyxy": [
+                0.37,
+                325.87,
+                638.44,
+                480.0
+              ]
+            }
+          ],
+          "eligible_people": 0
+        },
+        {
+          "second": 29,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        },
+        {
+          "second": 31,
+          "person_count": 0,
+          "best_person_score": 0,
+          "detections": [],
+          "eligible_people": 0
+        }
+      ],
+      "samples_with_eligible_person": 0
+    }
+  ],
+  "max_person_width_fraction": 0.3,
+  "max_person_height_fraction": 0.65
+}

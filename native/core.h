@@ -58,9 +58,9 @@ enum TrackStatus { // Perception result for the current observation. Only TRACKI
     WAITING, // No usable perception observation has established a tracking state yet.
     TRACKING, // Unique, fresh camera/LiDAR association has passed confirmation and motion checks.
     ACQUIRING, // A plausible position is waiting for enough consistent scans to initialize the filter.
-    NO_MARKER, // The camera image contains no accepted blue-marker component.
-    MULTIPLE_MARKERS, // More than one marker candidate prevents unique visual identification.
-    MARKER_ONLY, // A marker is visible but no LiDAR cluster matches its expected bearing.
+    NO_MARKER, // No accepted visual target: a blue component or an eligible detector observation.
+    MULTIPLE_MARKERS, // More than one visual candidate prevents unique target identification.
+    MARKER_ONLY, // A visual target is present but no LiDAR cluster matches its expected bearing.
     AMBIGUOUS_LIDAR, // Multiple clusters match the marker bearing; no arbitrary cluster is selected.
     OUTSIDE_CALIBRATION, // Marker position exceeds the calibrated interval and allowed extrapolation.
     POSITION_JUMP, // Observation timing or displacement violates the configured tracking motion allowance.
@@ -108,5 +108,11 @@ API int core_set_boundary(void *core, double radius_m); // Call before core_step
 API int core_step(void *core, const unsigned char *bgr, int width, int height, int stride,
                   double camera_time, const RawPoint *points, int count, double scan_time,
                   int scan_number, double now, const Control *control, Result *result); // Consume one observation snapshot and command; return 0, -1 invalid input, or -2 internal failure.
+// Evaluation entry: supply detector boxes already mapped into the original 640x480 camera coordinates.
+// A unique detector sequence and unique scan are both required to advance tracking confirmation.
+API int core_step_observations(void *core, const Marker *observations, int observations_count,
+                              std::uint64_t camera_sequence, double camera_at, const RawPoint *points,
+                              int count, double scan_at, int scan_number, double now,
+                              const Control *control, Result *result);
 API int core_plan(const Config *config, XY start, XY goal, const XY *obstacles, int obstacle_count,
                   int narrow, XY *path, int capacity); // Planner-only entry point for portable C++ tests and diagnostics.

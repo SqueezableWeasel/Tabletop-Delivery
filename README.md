@@ -1,94 +1,108 @@
-
-
-
 # Tabletop Delivery
 
-### Camera and LiDAR sensor fusion with Raspberry Pi and Coral USB
+### Camera and LiDAR sensor fusion with Raspberry Pi, YOLOv8n, and Coral USB
 
-This C++ tabletop project combines a Raspberry Pi camera and LiDAR to track a movable figure and guide a virtual delivery robot that stops, yields, or reroutes around it. A Coral USB Accelerator provides object detection for cues such as stop signs, while an interactive display shows sensor data, planned routes, and an adjustable clearance boundary. The compact demo explores perception and navigation challenges relevant to sidewalk delivery robots.
+Tabletop Delivery is a C++ robotics demonstration that combines a Raspberry Pi camera, a 2D LiDAR, and a Coral USB Accelerator to track a movable figure and guide a virtual delivery robot. A custom YOLOv8n model detects the figure and a printed stop sign. Camera detections provide a calibrated bearing, LiDAR provides metric range, and the robot yields, stops, or plans a detour as the scene changes. The project fits on a 2 × 3 ft table and explores perception and navigation problems relevant to sidewalk delivery robots.
+
+The live application—including sensor acquisition, TPU inference, detection decoding, fusion, planning, and display—is C++. Python notebooks and scripts are used for offline model preparation only.
+
+## Physical setup
+
+### Figure
+
+<img src="docs/images/figure.png" alt="The 10 cm tabletop figure used to train and demonstrate the custom detector, without the blue calibration square" width="360">
+
+The 10 cm figure is the movable obstacle. The custom model recognizes its appearance; a blue/cyan square is attached for camera/LiDAR calibration and optional marker comparison.
+
+### Testbed
+
+<img src="docs/images/testbed.png" alt="The tabletop testbed with the figure at the far end, placement markings, and the fixed sensor assembly at the near edge" width="520">
+
+The 2 × 3 ft tabletop provides a compact test area. The sensor station stays fixed while the figure moves by hand. Lane boundaries and the delivery robot appear virtually in the application.
+
+### Sensor suite
+
+<img src="docs/images/sensor-suite.png" alt="RPLIDAR C1 and camera mounted on a wooden plate beside the Raspberry Pi enclosure and Coral USB Accelerator" width="800">
+
+The camera and RPLIDAR share a rigid mount. The Raspberry Pi handles acquisition, fusion, planning, and rendering; the Coral USB Accelerator runs the supported portions of the object detector.
 
 ## Live demonstrations
 
-These recordings show the physical Raspberry Pi camera, LiDAR, and Coral USB Accelerator running the tabletop demo. The sensor plate stays fixed while the figure is moved by hand; the delivery robot moves virtually on the map.
+Both recordings use the physical Raspberry Pi camera, RPLIDAR C1, and Coral USB Accelerator with the custom two-class model. Each detection has one labeled bounding box.
 
-### Normal lane mode
+### Nominal and narrow lanes
 
-The wider lane gives the virtual robot space to plan a route around the figure and adjust as the obstacle moves. **35 seconds.**
+The robot reroutes around the figure in the nominal lane, then repeats the delivery in the narrow lane. Hand occlusion briefly produces `TRACKING LOST`; motion resumes after the detector and LiDAR establish a valid track. **1 min 27 s.** The narrow-lane portion starts at approximately **0:59**.
 
-https://github.com/user-attachments/assets/7a4f45f4-07a9-4fcf-a3de-5093d7795c0a
+https://github.com/user-attachments/assets/3236bc09-86c2-4045-8ad1-a7dd74871eaf
 
-### Narrow lane mode
+[Open the included lane demonstration](docs/videos/nominal-and-narrow-lanes.mp4)
 
-The narrower lane constrains the available routes. The robot yields and replans as the figure moves through its path, then completes the delivery when the route clears. **34 seconds.**
+### Stop-sign response
 
-https://github.com/user-attachments/assets/d9e92878-ef92-4d8b-bfda-fc96806b2d2a
+The robot begins a detour, holds when the printed stop sign is detected, then resumes and completes the delivery after the sign is removed. **36 s.**
 
-### Stop sign response
+https://github.com/user-attachments/assets/c279b3e8-50bc-4d74-aa2c-43fd69f9af98
 
-https://github.com/user-attachments/assets/7bfb96b0-4e8e-46d6-bc74-347398ee92c1
+[Open the included stop-sign demonstration](docs/videos/stop-sign-response.mp4)
 
 ## Features
 
-- Blue-marker detection associated with metric LiDAR clusters.
-- Confirmed, smoothed tracking with raw observations retained for collision checks.
-- Direct routing, yielding, A* detours, and holds when a passage is blocked.
-- Adjustable robot pacing, with a default travel speed of 2.24 cm/s.
-- Asynchronous Coral stop-sign detection with confirmation and freshness checks.
-- Live clearance slider with persistent settings.
-- Camera/map display, timing indicators, CSV logs, and PNG/JSON snapshots.
-- C++ application, hardware backends, simulation, and tests.
-
-## Documentation
-
-| Guide | Contents |
-| --- | --- |
-| [Reading the annotated source](docs/ANNOTATED_SOURCE.md) | Same-line comment conventions, units, ownership, guards, and test scenarios. |
-| [Code walkthrough](docs/CODE_GUIDE.md) | Every source module, processing stage, state machine, ownership rule, and build component. |
-| [Configuration](docs/CONFIGURATION.md) | Every JSON field, calibration procedure, units, defaults, and boundary persistence. |
-| [16-inch calibration](docs/CALIBRATION.md) | Camera-origin measurement, physical placements, live native capture, validation, and saved measured settings. |
-| [Hardware and operation](docs/HARDWARE.md) | Physical arrangement, sensor connections, timing, controls, demo script, and troubleshooting. |
-| [Testing](docs/TESTING.md) | Test suites, desktop/core builds, validation scope, and Pi checks. |
-| [Dependencies](THIRD_PARTY.md) | Upstream sources, pinned model/runtime identities, and third-party notices. |
+- Custom YOLOv8n detection of `figure` and `stop_sign`, using INT8 inference on Coral USB.
+- Figure detections associated with time-paired LiDAR clusters for metric tracking.
+- Confirmation, smoothing, and freshness checks; raw positions remain available for collision checks.
+- Direct routing, yielding, A* detours, and holds when a route is blocked or tracking is lost.
+- Stop-sign confirmation and release timing independent of geometric obstacle avoidance.
+- Adjustable **3–10 cm** figure boundary, saved through the on-screen controls.
+- Default virtual robot speed of **2.24 cm/s**.
+- Blue-marker calibration and an optional marker/YOLO comparison mode.
+- Native camera/map display, timing indicators, CSV logs, and PNG/JSON snapshots.
+- Desktop simulation and C++ tests that do not require the physical sensors.
 
 ## Hardware
 
 | Component | Role |
 | --- | --- |
-| Raspberry Pi 4 Model B | Acquisition, tracking, planning, rendering, and logging. |
-| OV5647 camera over CSI | 640 × 480 image input for marker detection and inference. |
-| RPLIDAR C1M1-R2 | Horizontal range scan through a CP2102N USB/UART adapter at 460800 baud. |
-| Coral USB Accelerator | Edge TPU execution of SSD MobileNet V2 COCO. |
-| Rigid plate and marked 10 cm figure | Fixed sensor geometry and a movable camera/LiDAR target. |
-| 2 × 3 ft table | Compact demonstration area. |
+| Raspberry Pi 4 Model B | Acquisition, image preparation, detection decoding, fusion, planning, and display. |
+| OV5647 camera over CSI | 640 × 480 images for detection and calibration. |
+| RPLIDAR C1M1-R2 | Horizontal scans through a CP2102N USB/UART adapter at 460800 baud. |
+| Coral USB Accelerator | Executes the Edge TPU portion of the custom YOLOv8n model. |
+| Rigid sensor plate | Maintains the measured camera/LiDAR geometry. |
+| 10 cm figure and printed stop sign | Physical targets for the custom detector. |
+| 2 × 3 ft table | Demonstration area; no drive chassis is required. |
 
-The sensor plate stays stationary. The robot moves on screen; no drive chassis is required. The camera lens center is **28 mm above the tabletop**. Calibration places the figure's center **16 inches forward of the camera**, measured horizontally. The figure intersects a scanning window 45 mm above the tabletop.
+The reference camera lens center is **28 mm above the tabletop**, and the LiDAR scanning window is **45 mm above the tabletop**. The figure must intersect the horizontal scan. Physical calibration places the figure's center **16 inches (40.64 cm) forward of the camera lens**, measured horizontally. The tracked LiDAR surface is not necessarily the center of the figure's base.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    Camera["Camera frames"] --> Marker["Marker and bearing"]
+    Camera["Camera frames"] --> YOLO["Custom YOLOv8n / Coral USB"]
+    YOLO --> Figure["Figure box / calibrated bearing"]
     LiDAR["LiDAR scans"] --> Clusters["Metric clusters"]
-    Marker --> Track["Association and tracking"]
-    Clusters --> Track
-    Track --> Planner["Collision checks and A*"]
-    Camera --> Coral["Coral detection"]
-    Coral --> Gate["Stop-sign and freshness gates"]
-    Gate --> Planner
-    Planner --> Robot["Virtual robot"]
-    Track --> UI["Display and diagnostics"]
+    Figure --> Fusion["Time pairing / association / tracking"]
+    Clusters --> Fusion
+    Fusion --> Planner["Collision checks / yield / A* detour"]
+    YOLO --> Sign["Stop-sign confirmation / freshness"]
+    Sign --> Planner
+    Planner --> Robot["Virtual delivery robot"]
+    Fusion --> UI["Display / logs / snapshots"]
     Robot --> UI
 ```
 
-The camera identifies a blue/cyan marker and converts its image position to a calibrated bearing. Exactly one LiDAR cluster must match that bearing. Frames and scans are paired using host receive times. Missing, stale, or ambiguous observations hold motion.
+**Detection and fusion.** The custom model uses class `0` for the figure and class `1` for the stop sign. The horizontal center of an eligible figure box is converted to a bearing using the saved camera/LiDAR calibration. The program pairs the detector's original source frame with a nearby scan using host receive times. Exactly one valid LiDAR cluster must match the bearing before tracking can authorize motion. A camera box alone supplies no metric distance.
 
-The robot checks its entire movement segment against the figure boundary. It yields before finding a detour and stops if no route fits. Both raw and filtered figure positions constrain motion. Coral supplies a separate stop-sign gate; it does not provide the figure's metric position.
+**Motion decisions.** The robot checks movement segments against the figure's exclusion boundary, using raw and smoothed positions. When the direct route becomes obstructed, it yields briefly and searches for a detour. It holds when no route fits, the figure overlaps its current position, or perception is missing, stale, or ambiguous. Narrow-lane mode reduces the available planning space.
+
+**Coral acceleration.** The Edge TPU executes supported neural-network operations. The Pi performs image preparation, the model's remaining CPU operations, output decoding, non-maximum suppression, fusion, and planning. The included model's compiler report assigns **233 operations to the TPU and 22 to the CPU**. Displayed invocation time is not end-to-end camera-to-motion latency.
+
+**Stop signs.** A sufficiently confident, confirmed stop-sign observation holds the robot even when figure tracking is healthy. Removal releases the hold after the confirmation/release logic. This is a tabletop semantic cue, not a traffic-rule controller or a sign-distance estimate.
 
 ## Quick start: Raspberry Pi
 
-The reference platform is 64-bit Raspberry Pi OS / Debian 13, OpenCV 4.10, TensorFlow Lite 2.20, and libcamera. C++20 and CMake 3.18+ are required. Clone or extract this repository, then run all commands **from its root directory**.
+The reference platform is 64-bit Raspberry Pi OS / Debian 13 with OpenCV 4.10, TensorFlow Lite 2.20, and libcamera. Use a C++20 compiler and CMake 3.18 or newer. Run the following commands **from the repository root**.
 
-Install the development packages:
+### 1. Install dependencies and the LiDAR SDK
 
 ```bash
 sudo apt update
@@ -96,50 +110,86 @@ sudo apt install -y build-essential cmake pkg-config git curl \
   libcamera-dev libopencv-dev libtensorflow-lite-dev \
   libflatbuffers-dev flatbuffers-compiler libabsl-dev \
   libusb-1.0-0-dev gdb
-```
 
-Prepare the SDK once:
-
-```bash
 mkdir -p third_party
 git clone https://github.com/Slamtec/rplidar_sdk.git third_party/rplidar_sdk
 git -C third_party/rplidar_sdk rev-parse HEAD
 ```
 
-The final command identifies the SDK revision for your build record. Set `RPLIDAR_SDK` to use a different checkout. The Coral must be accessible to your normal user; follow the [Coral USB setup instructions](https://coral.ai/docs/accelerator/get-started/) for device access.
+Record the SDK revision. Set `RPLIDAR_SDK` to reuse an existing checkout. Follow the [Coral USB setup instructions](https://coral.ai/docs/accelerator/get-started/) for normal-user device access.
 
-Build and verify the accelerator:
+### 2. Build and check the included custom model
+
+The compiled model, labels, checksum, and export manifest are included under `models/`. Retraining or export is not required to run the supplied figure detector.
 
 ```bash
 bash scripts/build_coral_runtime.sh
 bash build_pi.sh
-bash scripts/fetch_model.sh
-./build/tabletop_delivery --check-coral
+(cd models && sha256sum --check figure_yolov8n_320_edgetpu.sha256)
+./build/tabletop_delivery --yolo-profile figure --check-coral
 ```
 
-The check must finish with `PASS: USB delegate attached and model invoked in C++.` The private runtime is built against the installed TensorFlow Lite headers/library; rebuild both native components after changing TensorFlow Lite. Build concurrency defaults to two jobs and can be set with `JOBS`.
+The last command must report `PASS: USB delegate attached and model invoked in C++.` The private Coral runtime is built against the installed TensorFlow Lite headers/library; rebuild it and the application after changing TensorFlow Lite. `JOBS` controls build concurrency, which defaults to two.
 
-Close other applications using the sensors, then calibrate from the Pi desktop or a VNC session:
+### 3. Calibrate the camera and LiDAR
+
+Attach the blue/cyan square for calibration. Close other sensor applications and use the Pi desktop or VNC:
 
 ```bash
 ./build/tabletop_delivery --calibrate
 ```
 
-With the camera lens center **28 mm above the table**, place the figure's center **16 inches (40.64 cm) forward of the camera lens**, measured horizontally along the tabletop. Capture center, left, and right positions on that same forward row. Click the figure's LiDAR cluster, wait for 20 stable paired samples, then press **Space** for each position. Accepting the third pose **automatically saves and activates the calibration**. The capture window runs camera/LiDAR acquisition without starting a virtual delivery or loading Coral. See the [calibration guide](docs/CALIBRATION.md) for placement and selection details.
+Place the figure's center 16 inches forward of the camera lens. Capture center, left, and right positions on that same forward row. Select the figure's LiDAR cluster, wait for 20 stable paired samples, and press **Space** for each position. Accepting the third pose automatically saves and activates the calibration. See the [calibration guide](docs/CALIBRATION.md) for the physical procedure.
 
-Run the delivery with the measured calibration:
+Normal startup uses the last activated calibration, then `calibration_16in.json` if present, then `delivery_config.json`. An explicit `--config FILE` overrides that choice. The supplied seed anchors are not a substitute for measuring your sensor mount.
+
+### 4. Run the figure detector
 
 ```bash
-./build/tabletop_delivery
+./build/tabletop_delivery --yolo-profile figure --tracking yolo
 ```
 
-Normal startup uses the last activated calibration. If no activation record exists, it uses `calibration_16in.json` when present, otherwise `delivery_config.json`. An explicit `--config FILE` overrides this selection. Recalibration updates the selected output filename and retains backups. Confirm tracking before pressing Space. The supplied seed anchors still require physical calibration; calibration keeps measured LiDAR ranges and the 3–10 cm boundary controls.
+Confirm a single `figure` box and a valid LiDAR position, then press **Space**. The camera heading identifies `YOLO FIGURE`; the box label includes confidence. This mode uses the detector for the visual observation and does not fall back to the blue marker. The supplied recordings demonstrate this figure without the square; different poses, lighting, props, or backgrounds require further evaluation.
 
-## Quick start: desktop simulation
+To compare against the blue marker while it remains attached:
 
-![Tabletop Delivery simulation with tracking, route, and boundary controls](docs/images/application-preview.png)
+```bash
+./build/tabletop_delivery --yolo-profile figure --tracking compare
+```
 
-*Desktop simulation with generated camera/LiDAR input and Coral disabled. The recordings above use physical sensors and USB inference.*
+Comparison mode uses marker fusion to control the robot and runs the YOLO track alongside it for diagnostics. It shows the independent green marker box and purple detector box. Detector-control mode draws each detection once.
+
+## Model and run modes
+
+| Mode | Command/options | Behavior |
+| --- | --- | --- |
+| Custom figure control | `--yolo-profile figure --tracking yolo` | Figure detector supplies bearing; LiDAR supplies range; custom stop-sign gate is active. |
+| Custom comparison | `--yolo-profile figure --tracking compare` | Marker controls the robot; YOLO is measured alongside it. |
+| Marker with custom sign detector | `--yolo-profile figure --tracking marker` | Blue marker supplies bearing; custom model supplies stop-sign observations. |
+| Stock COCO person evaluation | `--yolo-profile coco --tracking compare` | Requires a separately exported COCO model; not trained for the miniature figure. |
+| Marker with SSD | No detector/tracking flags | Default CLI behavior; first run `bash scripts/fetch_model.sh` to download SSD. |
+| Desktop simulation | `--demo` | Generated sensor data, marker tracking, and Coral disabled. |
+
+The custom figure threshold defaults to **0.25**; use `--target-confidence` to change it. The stop-sign score threshold is **0.60**. `--model FILE` selects another compiled model with the selected profile's tensor and class contract. A PyTorch `.pt` file cannot run directly in the C++ application.
+
+See [the model guide](docs/FIGURE_MODEL.md) for the 60-training/18-validation-image experiment, conversion, tensor formats, and accuracy results. The held-out images came from the same recording; those metrics do not establish general performance in new scenes.
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| Space | Start/pause, or start another completed delivery. |
+| R | Reset robot pose and route. |
+| N | Switch nominal/narrow lane and reset the robot. |
+| M | Show the HSV marker mask in marker/comparison mode. |
+| S | Save a diagnostic snapshot. |
+| Boundary slider, −/+, or `[`/`]` | Change radius live, in 0.1 cm increments. |
+| Save or B | Persist the selected radius. |
+| Q / Esc / window close | Quit and stop acquisition. |
+
+The figure boundary ranges from **3.0 to 10.0 cm**, starting at **7.2 cm** unless a saved value is selected. It is the complete exclusion distance from the tracked figure position to the robot's center; another robot radius is not added. Changing it preserves pose and tracking while requiring route replanning. It represents a chosen demo clearance, not a measured figure footprint.
+
+## Desktop simulation and tests
 
 With a C++20 compiler, CMake, and OpenCV 4 development files:
 
@@ -150,53 +200,27 @@ ctest --test-dir build-desktop --output-on-failure
 ./build-desktop/tabletop_delivery --demo
 ```
 
-These commands use a single-configuration generator on Linux. See [Testing](docs/TESTING.md) for Windows and core-only builds. Simulation does not require libcamera, the LiDAR SDK, TensorFlow Lite, a model, or a Coral.
+Simulation requires no camera, LiDAR SDK, TensorFlow Lite, model, or Coral. It exercises the marker-based synthetic scene rather than simulating neural-network accuracy. See [Testing](docs/TESTING.md) for Windows and core-only builds. The merged package passes **11 desktop CTest entries**, including detector decoding and the single-box overlay regression.
 
-## Controls
+## Documentation and source
 
-| Input | Action |
+| Guide | Contents |
 | --- | --- |
-| Space | Start/pause or start another completed delivery. |
-| R | Reset robot pose and route. |
-| N | Switch wide/narrow lane and reset the robot. |
-| M | Show the HSV marker mask. |
-| S | Save a diagnostic snapshot. |
-| Boundary slider | Change clearance live. |
-| On-screen −/+ or `[`/`]` | Adjust radius by 0.1 cm. |
-| Save or B | Persist the selected radius. |
-| Q / Esc / window close | Quit and stop acquisition. |
+| [Code walkthrough](docs/CODE_GUIDE.md) | Acquisition, inference, fusion, planning, display, ownership, and build components. |
+| [Annotated source](docs/ANNOTATED_SOURCE.md) | Same-line comments, units, guards, and suggested reading order. |
+| [Custom model](docs/FIGURE_MODEL.md) | Figure/stop-sign model, training evidence, export, and C++ integration. |
+| [Detector comparison](docs/YOLO_EVALUATION.md) | Tracking modes, stock COCO export, thresholds, and comparison logs. |
+| [Configuration](docs/CONFIGURATION.md) | JSON fields, defaults, units, and boundary persistence. |
+| [Calibration](docs/CALIBRATION.md) | Three physical poses, sensor origins, capture validation, and activation. |
+| [Hardware and operation](docs/HARDWARE.md) | Mounting, connections, demo sequence, and troubleshooting. |
+| [Testing](docs/TESTING.md) | Automated checks and physical acceptance checks. |
+| [Model files](models/README.md) | Bundled model identity and optional SSD download. |
+| [Dependencies and notices](THIRD_PARTY.md) | Upstream software, model provenance, and licensing links. |
 
-The figure boundary is adjustable from **3.0 to 10.0 cm**, inclusive, in **0.1 cm** steps. It starts at **7.2 cm**, calculated from the nominal figure, robot, and margin settings unless an explicit or saved radius is selected. The chosen value is the complete exclusion distance from the tracked figure to the virtual robot's center; collision checking does not add another robot radius. Changes preserve pose and tracking while invalidating the route for replanning. The control sets a virtual demo boundary, not a measured prop size.
+The main components are `src/sensors.cpp` for acquisition, `src/coral_engine.h` and `src/coral.cpp` for inference, `src/yolo.h` for decoding, `src/evaluation.h` for detector/scan pairing and comparison, `native/core.cpp` for fusion and planning, and `src/view.cpp` for rendering. Offline export tools are under `scripts/`.
 
-## Paths and run modes
+## Records and scope
 
-All defaults are relative to the launch directory:
+Sessions under `delivery_runs/` contain resolved configuration, state CSV, and snapshots. Detector/comparison runs also record inference timings, track agreement, and model/profile settings. Builds, SDK/runtime downloads, local calibration, boundary preferences, and run logs are excluded from Git. The supplied custom model and demonstration assets are deliberately tracked.
 
-| Resource | Default |
-| --- | --- |
-| Experiment settings | `delivery_config.json` |
-| Detector | `models/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite` |
-| Private runtime | `native_runtime/libedgetpu.so.1` |
-| Session data | `delivery_runs/` |
-| SDK for builds | `third_party/rplidar_sdk/` |
-
-Configuration order is the selected config, an optional **explicit** `--tracking-config`, and the selected config's `.boundary.json` sidecar. See `--help` for path overrides.
-
-```bash
-# Bound an SSH acquisition check; headless mode auto-starts the virtual robot
-./build/tabletop_delivery --headless --seconds 20
-
-# Live camera/LiDAR with the Coral gate explicitly disabled
-./build/tabletop_delivery --no-coral
-
-# Select an experiment configuration
-./build/tabletop_delivery --config delivery_config.json
-```
-
-Runs record resolved settings, state CSV, and snapshots under `delivery_runs/`. Downloads, builds, run data, saved boundary preferences, default calibration outputs, activation records, and calibration backups are excluded by `.gitignore`.
-
-## Scope and validation
-
-This is a fixed-sensor demonstration with one marked prop and a virtual robot. It does not implement physical drive control, table-edge detection, SLAM, a general occupancy map, or hardware synchronization. Unassociated LiDAR returns are display context. Camera-only detection cannot authorize motion.
-
-The repository includes behavioral, geometric, model-parser, configuration, camera-control, and application tests. The documented desktop run passes 22 behavior cases and the planner's 252-position sweep. See [Testing](docs/TESTING.md) for the checks performed on this package and the remaining target-Pi verification. Scheduling targets and inference duration are not end-to-end performance guarantees.
+This is a fixed-sensor, single-figure demonstration with a virtual robot. It does not implement physical drive control, table-edge detection, SLAM, a general occupancy map, or hardware synchronization. Unassociated LiDAR points provide display context. The videos demonstrate the supplied props in one setup; they do not establish general pedestrian detection, autonomous navigation safety, or a measured CPU-versus-TPU speedup.

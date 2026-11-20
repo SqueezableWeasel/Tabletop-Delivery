@@ -311,6 +311,7 @@ struct Engine { // State persists between scans: pending confirmation, filtered 
     int pending_count = 0, segment = 0; // Consecutive acquisition confirmations and the current discontinuity segment ID.
     bool running = false, narrow = false, ever_started = false; // Delivery run toggle, lane selection, and whether the robot has ever started this run.
     double previous_time = -1, yield_start = -1, healthy_since = -1, clear_since = -1; // Negative sentinels mean the motion, yield, recovery, or sign-clear timer is inactive.
+    std::uint64_t last_visual_sequence = 0; // External detections cannot confirm a track twice.
     int last_coral = -1, stop_count = 0; // Last consumed inference sequence and consecutive positive stop-sign observations.
     bool stop_latched = false; // Persistent semantic hold; stale inference cannot release it.
     std::vector<XY> route; // Remaining waypoints exclude the current robot position after planning.
@@ -339,22 +340,31 @@ struct Engine { // State persists between scans: pending confirmation, filtered 
         break_trail = true; // Prevent the display from connecting positions across a tracking discontinuity.
     }
     void track(const unsigned char *image, int stride, double camera_at, const RawPoint *points,
-               int count, double scan_at, int scan_number, double now) { // Process each new scan once. Reject stale inputs and timestamp mismatch, then require one marker and one bearing-compatible LiDAR group before estimating XY.
+               int count, double scan_at, int scan_number, double now,
+               const std::vector<Marker> *external = nullptr, std::uint64_t visual_sequence = 0) { // Process each new scan once. Reject stale inputs and timestamp mismatch, then require one marker and one bearing-compatible LiDAR group before estimating XY.
         while (!trail.empty() && now - trail.front().stamp > c.trail_s) // Expire history older than trail_s even when the current observation is unusable.
             trail.pop_front(); // Remove the oldest retained position to satisfy the age or capacity bound.
-        if (!image || now - camera_at >= c.fresh) { // Missing pixels and stale camera frames both invalidate current tracking.
+        if ((!image && !external) || camera_at > now || now - camera_at >= c.fresh) { // Missing pixels and stale camera frames both invalidate current tracking.
             lost(STALE_CAMERA); // Report camera staleness and interrupt the acquisition chain.
             return;
         }
-        if (scan_number < 0 || now - scan_at >= c.fresh) { // An absent or expired scan cannot provide a current metric figure position.
+        if (scan_number < 0 || scan_at > now || now - scan_at >= c.fresh) { // An absent or expired scan cannot provide a current metric figure position.
             lost(STALE_LIDAR); // Hold tracking until a fresh complete scan becomes available.
             return;
         }
+        if (external && external->size() != 1) { // Fresh negative/ambiguous detection immediately holds motion, even on a reused scan.
+            r.marker_count = int(external->size());
+            std::copy(external->begin(), external->end(), r.markers);
+            lost(external->empty() ? NO_MARKER : MULTIPLE_MARKERS);
+            return;
+        }
+        if (external && (visual_sequence <= last_visual_sequence || scan_number <= r.scan_number))
+            return; // Do not invent evidence from repeated inference or regress to an older scan.
         if (scan_number == r.scan_number) // Avoid counting one scan multiple times as the faster application loop runs.
             return;
         r.scan_number = scan_number; // Record that this unique scan is being consumed.
         r.pair_delta = camera_at - scan_at; // Signed receive-time difference; this is host pairing, not hardware synchronization.
-        auto ms = markers(image, stride, c); // Find all plausible blue-marker components in the paired camera frame.
+        auto ms = external ? *external : markers(image, stride, c); // Find all plausible blue-marker components in the paired camera frame.
         auto gs = groups(points, count, c); // Cluster accepted LiDAR returns in the metric region of interest.
         r.marker_count = int(std::min<size_t>(ms.size(), 16)); // Bound diagnostic marker output to the fixed public array capacity.
         r.group_count = int(std::min<size_t>(gs.size(), 64)); // Bound diagnostic cluster output to the fixed public array capacity.
@@ -395,6 +405,7 @@ struct Engine { // State persists between scans: pending confirmation, filtered 
             lost(MARKER_ONLY); // Report visual identification without a usable LiDAR association.
             return;
         }
+        if (external) last_visual_sequence = visual_sequence; // Count this camera observation only after a complete unambiguous pairing.
         XY raw = gs[candidate].xy; // Reacquire after a long gap. Otherwise bound observation jumps by a fixed allowance plus elapsed-time motion, then apply a time-dependent low-pass filter. The selected cluster centroid supplies the measured Cartesian position.
         r.raw = raw; // Preserve the unsmoothed position for immediate collision checks as well as diagnostics.
         double age = r.last_seen < 0 ? 1e6 : scan_at - r.last_seen; // Time since the last accepted scan; the sentinel forces initial reacquisition.
@@ -646,6 +657,28 @@ int core_step(void *core, const unsigned char *bgr, int width, int height, int s
     } catch (...) {
         return -2;
     }
+}
+int core_step_observations(void *core, const Marker *observations, int observations_count,
+                           std::uint64_t camera_sequence, double camera_at, const RawPoint *points,
+                           int count, double scan_at, int scan_number, double now,
+                           const Control *control, Result *result) {
+    if (!core || !control || !result || observations_count < 0 || observations_count > 16 ||
+        (!observations && observations_count) || count < 0 || count > 16384 || (!points && count) ||
+        !std::isfinite(now) || !std::isfinite(camera_at) || !std::isfinite(scan_at)) return -1;
+    try {
+        std::vector<Marker> ms;
+        for (int i=0; i<observations_count; ++i) {
+            const auto &m=observations[i];
+            if (!std::isfinite(m.u) || !std::isfinite(m.v) || m.u<0 || m.u>=640 || m.v<0 || m.v>=480 ||
+                m.x<0 || m.y<0 || m.w<1 || m.h<1 || m.w>640-m.x || m.h>480-m.y) return -1;
+            ms.push_back(m);
+        }
+        auto &e=*static_cast<Engine *>(core);
+        e.track(nullptr,1920,camera_at,points,count,scan_at,scan_number,now,&ms,camera_sequence);
+        e.robot(now,*control);
+        e.finish(*result);
+        return 0;
+    } catch (...) { return -2; }
 }
 int core_plan(const Config *c, XY start, XY goal, const XY *obstacles, int n, int narrow, XY *path,
               int capacity) { // Stateless planning entry point: path includes start and goal. Return its length, 0 for no route, or negative values for invalid input/capacity/exception.

@@ -20,10 +20,10 @@ struct Coral::Impl { // Construct and warm up the interpreter before marking rea
     std::uint64_t submitted = 0; // Last submitted camera sequence prevents reinference of the same image.
     CoralState state; // Latest published inference result and startup/error information.
     std::thread worker; // Exclusive post-startup caller of the interpreter's inference routine.
-    Impl(const std::string &model, const std::string &library) : engine(model, library) { // Warm up the interpreter before launching any worker or publishing readiness.
+    Impl(const std::string &model, const std::string &library, DetectorOptions options) : engine(model, library, options) { // Warm up the interpreter before launching any worker or publishing readiness.
         state.ready = true; // Engine construction succeeded, including a real USB-delegate model invocation.
         state.detail = "USB delegate ready; waiting for a camera frame"; // Tell consumers that the service is ready but no camera inference result exists yet.
-        worker = std::thread([this] { // Start asynchronous inference while the main application continues tracking and rendering.
+        worker = std::thread([this, options] { // Start asynchronous inference while the main application continues tracking and rendering.
             try {
                 int sequence = 0; // Count completed inference results separately from camera frame sequences.
                 for (;;) { // Run until an explicit shutdown request or a caught inference error ends the worker.
@@ -36,15 +36,18 @@ struct Coral::Impl { // Construct and warm up the interpreter before marking rea
                         frame = std::move(pending); // Transfer the pending image into worker-local ownership while holding the queue lock.
                         pending = {}; // Empty the waiting slot so new submissions are independent of the in- flight image.
                     }
-                    CoralState next; // Attach the source receive time and a new result sequence. Class ID 12 is the zero-based stop-sign class; confirmation/release timing belongs to the core. Build a complete result privately before publishing it to readers.
+                    CoralState next; // Build one coherent result privately; profile-aware class interpretation occurs below and confirmation/release timing remains in the core.
                     next.ready = true; // This result comes from a successfully initialized inference engine.
                     next.sequence = ++sequence; // Assign a new completed-result identity for stop-sign confirmation and duplicate suppression.
                     next.frame_time = frame.received; // Preserve source image age so a newly delivered result cannot hide stale pixels.
-                    next.detections = engine.infer(frame, next.inference_ms); // Invoke native inference outside the publication lock and record its measured Invoke duration.
+                    next.source_frame = frame; // Detection coordinates and timestamps refer to these exact pixels.
+                    next.yolo = options.kind == DetectorKind::YoloV8;
+                    next.figure_model = next.yolo && options.profile == YoloProfile::Figure; // Keep overlay labels aligned with this inference's class contract.
+                    next.detections = engine.infer(frame, next.inference_ms, next.preprocess_ms, next.postprocess_ms, next.total_ms); // Invoke native inference outside the publication lock and record its measured Invoke duration.
                     next.received = clock_now(); // Stamp inference completion on the shared monotonic host clock.
                     next.detail = "Coral USB native inference"; // Supply a concise diagnostic label for a successfully completed native USB inference.
                     for (const auto &d : next.detections) // Examine accepted model detections for the project's semantic stop condition.
-                        if (d.id == 12 && d.score >= .60f) // Zero-based COCO stop-sign ID 12 requires at least 0.60 confidence for this gate.
+                        if (detected_stop(d, options)) // Custom stop_sign=1; COCO YOLO=11; SSD=12, all at the established 0.60 gate threshold.
                             next.stop_sign = true; // Flag a positive observation; consecutive confirmation and release timing occur in the core.
                     std::lock_guard<std::mutex> lock(mutex); // Serialize state publication or shutdown changes with submissions and status readers.
                     state = std::move(next); // Publish the whole completed observation together so timestamps and detections cannot be mixed.
@@ -66,8 +69,8 @@ struct Coral::Impl { // Construct and warm up the interpreter before marking rea
             worker.join(); // Wait for in-flight inference and worker exit before destroying native runtime resources.
     }
 };
-Coral::Coral(const std::string &model, const std::string &library) // Own the warmed-up service behind the public platform-neutral interface.
-    : impl_(std::make_unique<Impl>(model, library)) {}
+Coral::Coral(const std::string &model, const std::string &library, DetectorOptions options) // Own the warmed-up service behind the public platform-neutral interface.
+    : impl_(std::make_unique<Impl>(model, library, options)) {}
 Coral::~Coral() = default; // Default destruction invokes the implementation's ordered worker/interpreter cleanup.
 void Coral::submit(const Frame &frame) { // Ignore invalid/duplicate frames and replace the single waiting frame. Shared immutable ownership keeps its pixels alive until inference finishes.
     if (!frame) // Ignore missing or incorrectly sized pixel storage before attempting submission.

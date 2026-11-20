@@ -7,6 +7,7 @@
  */
 
 #include "app.h"
+#include "evaluation.h" // Exact detector-frame pairing, independent comparison, and measurement logs.
 #include "calibration.h" // Native stationary capture derives new anchors at the camera-referenced 16-inch row.
 #include <opencv2/highgui.hpp>
 #include <csignal> // Signal-safe termination flag and registration of interrupt/termination handlers.
@@ -19,6 +20,9 @@ void signal_handler(int) { // The signal handler only assigns a sig_atomic_t fla
     quit_requested = 1; // Ask the normal main loop to exit so destructors can release hardware safely.
 }
 struct Options { // CLI values are independent of neighboring folders. Relative paths resolve against the launch directory; run from the repository root by default.
+    std::string tracking_mode = "marker"; // marker controls the working demo; compare shadows YOLO; yolo permits detector control.
+    tabletop::DetectorOptions detector; // Select the native inference tensor contract and person threshold.
+    bool model_explicit = false, detector_explicit = false, profile_explicit = false, confidence_explicit = false;
     bool demo = false, headless = false, auto_start = false, no_coral = false, check_coral = false; // Default to live, windowed operation with required Coral and manual robot start.
     bool calibrate = false; // Select live calibration without starting a delivery or opening the Coral runtime.
     bool config_explicit = false; // Distinguish a deliberate --config choice from default automatic calibration selection.
@@ -43,6 +47,14 @@ void help() { // Describe the live, simulated, and diagnostic entry points witho
            "  --config PATH  --tracking-config PATH       configuration/calibration override\n"
            "  --port /dev/serial/by-id/... --camera-index N\n"
            "  --model FILE --edgetpu-lib FILE --output DIR\n"
+           "Detector and tracking modes:\n"
+           "  --tracking marker|compare|yolo              marker is default; compare keeps marker control\n"
+           "  --detector ssd|yolov8                       compare/yolo select YOLO automatically\n"
+           "  --yolo-profile coco|figure                  figure selects the custom 2-class model\n"
+           "  --target-confidence 0.25                    figure threshold; alias: --person-confidence\n"
+           "  --person-confidence 0.35                    minimum COCO person score\n"
+           "  --person-max-width 0.30 --person-max-height 0.65   target box fractions of camera image\n"
+           "  --yolo-coordinates normalized|pixels        explicit exported box convention\n"
            "Keys: Space start/pause, R reset, N lane, M mask, S snapshot, Q/Esc quit\n"
            "Figure boundary: click/drag slider or -/+; [/] adjust 0.1 cm; B/Save remembers it\n"; // Report application progress or state to the launching terminal; output does not drive decisions.
 }
@@ -88,8 +100,32 @@ Options parse(int argc, char **argv) { // Parse options and reject unsafe/contra
             o.tracking = value(); // Store the optional tracking-only overlay path without searching neighboring directories.
         else if (a == "--port") // Override automatic LiDAR serial-device selection.
             o.port = value(); // Pass the chosen serial path through to the native sensor backend.
-        else if (a == "--model") // Override the detector model path while preserving runtime model validation.
-            o.model = value(); // Retain the detector path for warm-up or live inference initialization.
+        else if (a == "--tracking") o.tracking_mode = value(); // Select the visual source used by fusion while preserving explicit marker/comparison modes.
+        else if (a == "--detector") {
+            const auto v=value(); o.detector_explicit=true;
+            if(v=="ssd") o.detector.kind=tabletop::DetectorKind::Ssd;
+            else if(v=="yolov8") o.detector.kind=tabletop::DetectorKind::YoloV8;
+            else throw std::runtime_error("--detector must be ssd or yolov8");
+        } else if (a == "--yolo-profile") {
+            const auto v = value(); o.profile_explicit = true; // Bind the tensor contract and class meanings together.
+            if (v == "coco") o.detector.profile = tabletop::YoloProfile::Coco;
+            else if (v == "figure") o.detector.profile = tabletop::YoloProfile::Figure;
+            else throw std::runtime_error("--yolo-profile must be coco or figure");
+        } else if (a == "--person-confidence" || a == "--target-confidence") {
+            o.confidence_explicit = true; // A caller threshold takes precedence over either profile's default.
+            const auto v=value(); std::size_t n=0; o.detector.person_confidence=std::stof(v,&n);
+            if(n!=v.size() || !std::isfinite(o.detector.person_confidence) || o.detector.person_confidence<=0 || o.detector.person_confidence>1)
+                throw std::runtime_error("--person-confidence must be in (0,1]");
+        } else if(a=="--person-max-width" || a=="--person-max-height") {
+            const auto v=value(); std::size_t n=0; const float fraction=std::stof(v,&n);
+            if(n!=v.size() || !std::isfinite(fraction) || fraction<=0 || fraction>1)
+                throw std::runtime_error("Person size limits must be in (0,1]");
+            (a=="--person-max-width" ? o.detector.max_person_width : o.detector.max_person_height)=fraction;
+        } else if(a=="--yolo-coordinates") {
+            const auto v=value();
+            if(v!="normalized" && v!="pixels") throw std::runtime_error("--yolo-coordinates must be normalized or pixels");
+            o.detector.normalized_boxes=v=="normalized";
+        } else if (a == "--model") { o.model=value(); o.model_explicit=true; }
         else if (a == "--edgetpu-lib") // Select an alternative delegate library that must still pass ABI/version checks.
             o.library = value(); // Store the explicit native delegate library path.
         else if (a == "--output") // Choose the parent directory for session logs and snapshots.
@@ -105,6 +141,24 @@ Options parse(int argc, char **argv) { // Parse options and reject unsafe/contra
         throw std::runtime_error("--check-coral requires real Coral, not --demo/--no-coral");
     if (o.calibrate && (o.demo || o.headless || o.auto_start || o.check_coral || o.seconds > 0)) // Calibration requires manual physical placement and a visible live-sensor selection window.
         throw std::runtime_error("--calibrate requires live interactive capture without demo, auto-start, or a time limit");
+    if(o.tracking_mode!="marker" && o.tracking_mode!="compare" && o.tracking_mode!="yolo")
+        throw std::runtime_error("--tracking must be marker, compare, or yolo");
+    if (o.profile_explicit) {
+        if (o.detector_explicit && o.detector.kind != tabletop::DetectorKind::YoloV8)
+            throw std::runtime_error("--yolo-profile requires --detector yolov8");
+        o.detector.kind = tabletop::DetectorKind::YoloV8; // An explicit YOLO profile selects its backend even for --check-coral.
+    }
+    if(o.tracking_mode!="marker") {
+        if(o.detector_explicit && o.detector.kind!=tabletop::DetectorKind::YoloV8)
+            throw std::runtime_error("compare/yolo tracking requires --detector yolov8");
+        o.detector.kind=tabletop::DetectorKind::YoloV8;
+        if(o.demo || o.no_coral || o.calibrate)
+            throw std::runtime_error("compare/yolo requires live Coral; calibrate separately using marker mode");
+    }
+    if (o.detector.profile == tabletop::YoloProfile::Figure && !o.confidence_explicit)
+        o.detector.person_confidence = .25f; // Match the training notebook's initial preview threshold.
+    if(o.detector.kind==tabletop::DetectorKind::YoloV8 && !o.model_explicit)
+        o.model = o.detector.profile == tabletop::YoloProfile::Figure ? "models/figure_yolov8n_320_edgetpu.tflite" : "models/yolov8n_320_edgetpu.tflite";
     return o; // Return validated command-line options to startup.
 }
 } // namespace
@@ -123,7 +177,7 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
         const bool coral_required = !o.demo && !o.no_coral; // Semantic inference is required only for live runs without the explicit disable flag.
         std::unique_ptr<Coral> coral; // Optional exclusive owner of the inference service; null means it is disabled.
         if (o.check_coral) { // Run the hardware diagnostic independently of camera, LiDAR, and tracking configuration.
-            Coral check(o.model, o.library); // Construction validates model/runtime compatibility and invokes the real USB delegate once.
+            Coral check(o.model, o.library, o.detector); // Construction validates model/runtime compatibility and invokes the real USB delegate once.
             std::cout << "PASS: USB delegate attached and model invoked in C++.\n"; // Report application progress or state to the launching terminal; output does not drive decisions.
             return 0;
         }
@@ -154,12 +208,20 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
         if (!core) // Stop startup if the engine rejected configuration or could not allocate its state.
             throw std::runtime_error("Native engine creation failed");
         if (coral_required) // Initialize the USB service only when semantic sensing is part of this run.
-            coral = std::make_unique<Coral>(o.model, o.library); // Load, check, and warm up Coral before live camera frames are submitted.
+            coral = std::make_unique<Coral>(o.model, o.library, o.detector); // Load, check, and warm up Coral before live camera frames are submitted.
         std::unique_ptr<Sensors> sensors; // Optional RAII owner of the physical acquisition stack.
         DemoSource demo(c); // Keep a simulator available through the same observation contract as the hardware backend.
         if (!o.demo) // Open the real acquisition stack only for a live run.
             sensors = std::make_unique<Sensors>(o.port, o.camera); // Start camera callbacks and the LiDAR worker using the selected device options.
-        SessionLog log(o.output, c, o.demo, coral_required); // Create a unique run directory and record the resolved configuration before entering the loop.
+        SessionLog log(o.output, c, o.demo, coral_required);
+        const bool evaluating=o.tracking_mode!="marker", yolo_controls=o.tracking_mode=="yolo";
+        std::unique_ptr<void,decltype(&core_destroy)> shadow(evaluating?core_create(&c):nullptr,core_destroy);
+        if(evaluating && !shadow) throw std::runtime_error("Cannot create comparison tracker");
+        DetectionPairer pairer;
+        EvaluationDisplay evaluation;
+        std::unique_ptr<EvaluationLog> evaluation_log;
+        if(evaluating) evaluation_log=std::make_unique<EvaluationLog>(log.path(),o.tracking_mode,o.model,o.detector);
+        std::cout<<"Tracking mode: "<<o.tracking_mode<<'\n'; // Create a unique run directory and record the resolved configuration before entering the loop.
         std::cout << "Session: " << log.path() << '\n'; // Report application progress or state to the launching terminal; output does not drive decisions.
         const double start = clock_now(); // Establish the monotonic session origin for elapsed time and watchdog deadlines.
         double last_log = -1, last_display = -1, step_ms = 0, last_sensor_ok = start; // Initialize logging/display schedules, measured core cost, and the last healthy sensor time.
@@ -202,6 +264,7 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
                 if (std::abs(radius - exclusion_radius(c)) > 1e-12) { // Ignore rounding-equivalent radius values rather than invalidating a valid route unnecessarily.
                     if (core_set_boundary(core.get(), radius)) // Validate and apply geometry before this iteration's robot movement.
                         throw std::runtime_error("Invalid figure boundary requested");
+                    if (shadow && core_set_boundary(shadow.get(),radius)) throw std::runtime_error("Comparison boundary update failed");
                     c.boundary_radius = radius; // Keep display and persistence synchronized with the exact total radius accepted by the engine.
                     boundary.notice = "Unsaved"; // Mark a live radius edit as pending persistence until the user requests Save/B.
                     last_display = -1; // Force prompt rendering of changed radius or persistence feedback.
@@ -230,6 +293,11 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
             state = coral ? coral->status(now) : CoralState{}; // Copy read-time inference health or an explicit empty state when semantic sensing is disabled.
             if (!coral) // Give the display an unambiguous reason for absent semantic inference.
                 state.detail = "Explicitly disabled"; // Report the intentionally disabled service instead of presenting it as a hardware failure.
+            if(evaluating) {
+                pairer.observe(inputs.scan); // Store every arriving scan before pairing the most recent completed inference.
+                inputs=pairer.pair(state); // Use original detector pixels and the closest buffered scan.
+                frame=state.source_frame;
+            }
             const bool pair_fresh = frame && inputs.scan.sequence >= 0 &&
                                     now - frame.received < c.fresh &&
                                     now - inputs.scan.received < c.fresh; // Acquisition watchdogs distinguish temporary tracking loss from a missing stream. Marker loss holds motion in the core; persistent device failure exits. Require both acquired streams to exist and have receive ages below the configured freshness limit.
@@ -252,11 +320,22 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
             Control control{command, int(coral_required), int(state.healthy), state.sequence,
                             int(state.stop_sign)}; // The core sees one-shot commands plus the current semantic gate. Clear the command after the step so a held key event is not replayed each loop. Package the one-shot command and timestamp-qualified semantic observation for this core step.
             const double before = clock_now(); // Start timing just the tracking/planning call, excluding rendering and sensor acquisition.
-            const int rc = core_step(core.get(), frame ? frame.pixels->data() : nullptr, 640, 480,
-                                     1920, frame ? frame.received : now - 100,
-                                     inputs.scan.points.data(), int(inputs.scan.points.size()),
-                                     inputs.scan.sequence >= 0 ? inputs.scan.received : now - 100,
-                                     inputs.scan.sequence, now, &control, &result); // Pass packed BGR and raw scan data; missing streams get deliberately stale timestamps.
+            const auto marker_step=[&](void *engine, const Control &ctl, Result &out) {
+                return core_step(engine,frame?frame.pixels->data():nullptr,640,480,1920,
+                    frame?frame.received:now-100,inputs.scan.points.data(),int(inputs.scan.points.size()),
+                    inputs.scan.sequence>=0?inputs.scan.received:now-100,inputs.scan.sequence,now,&ctl,&out);
+            };
+            const int rc=yolo_controls ? step_detector(core.get(),inputs,state,o.detector,now,control,result)
+                                      : marker_step(core.get(),control,result);
+            if(evaluating) {
+                Result other{};
+                Control shadow_control{NONE,0,0,-1,0}; // Shadow tracks only; it never starts a second virtual delivery.
+                const int shadow_rc=yolo_controls ? marker_step(shadow.get(),shadow_control,other)
+                    : step_detector(shadow.get(),inputs,state,o.detector,now,shadow_control,other);
+                if(shadow_rc) throw std::runtime_error("Comparison tracker rejected observation");
+                evaluation=evaluation_display(yolo_controls,yolo_controls?other:result,yolo_controls?result:other,state,o.detector);
+                evaluation_log->record(elapsed,now,inputs,state,evaluation);
+            } // Both trackers consume the same source image and paired scan during evaluation.
             if (rc) // A nonzero core return indicates invalid input or an internal exception and ends the run.
                 throw std::runtime_error("Native tracking engine rejected frame/scan: " +
                                          std::to_string(rc));
@@ -269,7 +348,7 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
                 last_log = now; // Advance the periodic logging schedule after a record was written.
             }
             if (changed) { // Emit a concise terminal transition only when tracking or robot status changed.
-                std::cout << track_name(result.track_status) << " | robot "
+                std::cout << (yolo_controls ? detector_track_name(result.track_status, o.detector.profile == YoloProfile::Figure) : track_name(result.track_status)) << " | robot "
                           << robot_name(result.robot_status) << " | reroutes " << result.reroutes
                           << '\n'; // Report application progress or state to the launching terminal; output does not drive decisions.
                 old_track = result.track_status; // Remember the reported perception state to suppress duplicate transition messages.
@@ -278,7 +357,7 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
             bool finished = o.seconds > 0 && elapsed >= o.seconds; // A positive duration limit ends the run once elapsed time reaches the requested seconds.
             if ((!o.headless && now - last_display >= 1. / 30) || snapshot || finished) { // Render for the GUI's 30 Hz target, a requested snapshot, or the final timed state.
                 screen = render(c, inputs, frame, result, state, coral_required, o.demo, mask, now,
-                                step_ms, &boundary); // Build a coherent display from the observation and result consumed in this iteration.
+                                step_ms, &boundary, evaluating ? &evaluation : nullptr); // Build a coherent display from the observation and result consumed in this iteration.
                 last_display = now; // Record when the current canvas was rendered for GUI pacing.
                 if (!o.headless) // Perform GUI-only work when an interactive display was requested.
                     cv::imshow(window, screen); // Present the rendered canvas under the existing window identifier.
@@ -318,8 +397,9 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
         }
         const double final_now = clock_now(); // Save a final diagnostic view before releasing sensors. In bounded live checks, unavailable/stale required devices produce a nonzero exit status. Sample shutdown time for the final display and required-stream freshness checks.
         screen = render(c, inputs, frame, result, state, coral_required, o.demo, mask, final_now,
-                        step_ms, &boundary); // Build a coherent display from the observation and result consumed in this iteration.
+                        step_ms, &boundary, evaluating ? &evaluation : nullptr); // Build a coherent display from the observation and result consumed in this iteration.
         log.snapshot(screen, frame, inputs.scan, result, state); // Persist the canvas, paired camera frame, raw scan, and structured state together.
+        if(evaluation_log) evaluation_log->finish(); // Publish aggregate evidence before shutting down devices.
         sensors.reset(); // Stop physical acquisition and join sensor workers before leaving the application scope.
         coral.reset(); // Join the inference worker and release its interpreter, delegate, and loaded runtime.
         if (!o.headless) // Perform GUI-only work when an interactive display was requested.

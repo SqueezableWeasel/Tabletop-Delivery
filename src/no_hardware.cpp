@@ -18,7 +18,7 @@ Inputs Sensors::snapshot() { // Unreachable after rejecting construction; retain
     return {};
 }
 struct Coral::Impl {}; // Empty implementation type completes the desktop inference stub's ownership contract.
-Coral::Coral(const std::string &, const std::string &) { // Reject a real Coral request when the executable was compiled without Linux hardware support.
+Coral::Coral(const std::string &, const std::string &, DetectorOptions) { // Reject a real Coral request when the executable was compiled without Linux hardware support.
     throw std::runtime_error(
         "Native Coral backend not built: configure TABLETOP_HARDWARE=ON on the Pi");
 }

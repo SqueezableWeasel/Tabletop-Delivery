@@ -7,3 +7,8 @@ CMakeLists.txt text eol=lf
 *.md text eol=lf
 *.json text eol=lf
 *.png binary
+*.jpg binary
+*.mp4 binary
+*.tflite binary
+*.py text eol=lf
+*.ipynb text eol=lf

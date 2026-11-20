@@ -19,4 +19,4 @@ printf '\nNative executable ready: ./build/tabletop_delivery\n' # Report the exe
 if [[ ! -f native_runtime/libedgetpu.so.1 ]]; then # Check whether the separately built matching delegate is already present in this repository.
   printf 'Build the matching Coral library: bash scripts/build_coral_runtime.sh\n' # Provide the private runtime build command when its library is missing.
 fi
-printf 'Then: ./build/tabletop_delivery --check-coral\n' # Suggest the real USB warm-up check before attempting full live acquisition.
+printf 'Then: ./build/tabletop_delivery --yolo-profile figure --check-coral\n' # Check the bundled custom detector on the USB accelerator before full live acquisition.

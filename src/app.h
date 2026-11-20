@@ -7,6 +7,7 @@
 
 #pragma once // Include this header only once per translation unit.
 #include "runtime.h"
+#include "evaluation.h" // Shared detector options and portable YOLO tensor decoder.
 #include <filesystem> // Portable paths, directory creation, resource discovery, and session output locations.
 #include <fstream> // File streams for configuration, detector bytes, and run diagnostics.
 #include <atomic> // Atomic flags and values used for communication without unsynchronized shared writes.
@@ -41,14 +42,14 @@ class Coral { // RAII inference service. submit() keeps only the newest pending 
     std::unique_ptr<Impl> impl_; // Exclusive implementation ownership ensures deterministic cleanup through the destructor.
 
   public:
-    Coral(const std::string &model, const std::string &library); // Load the detector and matching USB runtime, warm up, then start the inference worker.
+    Coral(const std::string &model, const std::string &library, DetectorOptions options = {}); // Load the detector and matching USB runtime, warm up, then start the inference worker.
     ~Coral(); // Signal and join the worker before destroying its interpreter and USB delegate.
     void submit(const Frame &frame); // Replace the single pending frame; invalid and duplicate sequences are ignored.
     CoralState status(double now); // Copy the latest result and recompute freshness against the current host clock.
 };
 cv::Mat render(const Config &config, const Inputs &inputs, const Frame &frame, const Result &result,
                const CoralState &coral, bool coral_required, bool demo, bool mask, double now,
-               double step_ms, const BoundaryUi *boundary = nullptr); // Create a standalone 1280x800 BGR visualization from a coherent input/result pair.
+               double step_ms, const BoundaryUi *boundary = nullptr, const EvaluationDisplay *evaluation = nullptr); // Create a standalone 1280x800 BGR visualization from a coherent input/result pair.
 class SessionLog { // Own one run directory and CSV stream. Snapshot numbering is per session. Methods are called from the main thread and propagate filesystem errors.
     std::filesystem::path path_; // Unique output directory for this live or simulated session.
     std::ofstream csv_; // Open session CSV stream; destructor closes the underlying file automatically.

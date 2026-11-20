@@ -2,7 +2,7 @@
 
 ## Fixed sensor station
 
-![Camera and LiDAR on a common plate](images/sensor-mount.png)
+![Camera, LiDAR, Raspberry Pi, and Coral USB on the fixed sensor station](images/sensor-suite.png)
 
 The camera connects to the Pi over CSI. The C1 LiDAR uses a CP2102N USB-to-UART adapter, and Coral uses a separate USB connection. Secure both sensors to the same plate. Stable power, strain-relieved cables, and an unobstructed scanning sector make the short demo repeatable.
 
@@ -19,7 +19,7 @@ Select `--camera-index N` or `--port PATH` if required. The LiDAR baud rate is f
 
 ## What the display means
 
-The left panel shows the camera frame chosen for the displayed scan, its marker box, or the threshold mask. The right panel shows raw scan context, configured tracking/lane rectangles, selected figure position, trail, route, depot, and goal. The amber circle is the selected total exclusion radius for the robot center, adjustable from 3 to 10 cm.
+The left panel shows the paired camera frame and the active visual observations. Detector control shows one purple figure/stop-sign box per detection on its original source image. Marker/comparison control also shows the independent green marker box and can show its threshold mask. The right panel shows raw scan context, configured tracking/lane rectangles, selected figure position, trail, route, depot, and goal. The amber circle is the selected total exclusion radius for the robot center, adjustable from 3 to 10 cm.
 
 Camera and scan ages are host receive ages. The pair difference is their receive-time offset. Neither value proves synchronized exposure/scanning. The inference duration measures interpreter invocation and is not complete camera-to-decision latency.
 
@@ -31,14 +31,14 @@ Prepare the model/runtime and calibration before the presentation; setup and com
 
 | Time | Action | Observation |
 | --- | --- | --- |
-| 0–15 s | Place the figure beside the route; confirm tracking and Coral health. | Stable marker and metric position. |
+| 0–15 s | Place the figure beside the route; confirm tracking and Coral health. | Stable figure detection and metric position. |
 | 15–35 s | Press Space and move the figure toward the wide lane. | Yield and detour, or hold if overlapping. |
 | 35–55 s | Increase and reduce boundary radius. | Circle and route constraints update without resetting pose. |
 | 55–75 s | Press N, then Space; center the figure in the narrow lane. | Hold when blocked; resume as space opens. |
-| 75–95 s | Cover, then uncover the marker. | Tracking hold followed by confirmation and recovery. |
+| 75–95 s | Briefly occlude, then uncover the figure. | Tracking hold followed by confirmation and recovery. |
 | 95–110 s | Save the radius and press S. | Persisted preference and a diagnostic snapshot. |
 
-A printed stop sign can substitute for a step after confirming reliable recognition. The stock detector is not specifically trained on miniature signage. Move the figure slowly near the calibrated distance.
+For the custom model, use `--yolo-profile figure --tracking yolo`. Present the printed stop sign to demonstrate the confirmed stop hold, then remove it to release the robot. Both the figure and this sign were custom training targets. Move the figure slowly, and keep hands clear when demonstrating uninterrupted tracking. Marker comparison uses the blue square; detector control does not require it.
 
 ## Run records
 
@@ -59,10 +59,11 @@ Snapshots capture the program's inputs and decision state, not synchronized grou
 | Symptom | Action |
 | --- | --- |
 | Camera busy/unavailable | Close other capture software; inspect CSI connection and camera index. |
+| No eligible figure | Confirm the custom model/profile, lighting, pose, confidence, size gates, and absence of hand occlusion. |
 | No marker | Use M; check marker color, lighting, ROI, and component limits. |
 | Ambiguous or unstable position | Check the three bearing anchors, scan-plane intersection, and calibrated distance. |
 | No LiDAR scan | Inspect serial link, permissions, baud rate, and explicit port selection. |
-| TPU startup fails | Run `--check-coral`; inspect the private library path, ABI message, USB access, and power. |
+| TPU startup fails | Run `--yolo-profile figure --check-coral`; inspect the private library path, ABI message, USB access, and power. |
 | Saved boundary seems unexpected | Inspect the active configuration path and its `.boundary.json` sidecar. |
 | No GUI over SSH | Use Pi desktop/VNC, or run `--headless --seconds 20`. |
 
@@ -70,7 +71,7 @@ Snapshots capture the program's inputs and decision state, not synchronized grou
 
 ```bash
 gdb -q -batch -ex run -ex "thread apply all bt 15" \
-  --args ./build/tabletop_delivery --headless --seconds 10 \
+  --args ./build/tabletop_delivery --yolo-profile figure --tracking yolo --headless --seconds 10 \
   > native_live_debug.txt 2>&1
 ```
 

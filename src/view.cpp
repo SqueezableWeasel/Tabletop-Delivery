@@ -111,18 +111,23 @@ void BoundaryUi::mouse(int event, int x, int y, int flags) { // Hit-test buttons
 }
 cv::Mat render(const Config &c, const Inputs &inputs, const Frame &frame, const Result &r,
                const CoralState &coral, bool coral_required, bool demo, bool mask, double now,
-               double step_ms, const BoundaryUi *boundary) { // Compose camera, metric map, status, timing, and controls from one snapshot. Rendering does not change tracking or planner state and can run headlessly.
+               double step_ms, const BoundaryUi *boundary, const EvaluationDisplay *evaluation) { // Compose camera, metric map, status, timing, and controls from one snapshot. Rendering does not change tracking or planner state and can run headlessly.
     cv::Mat image(800, 1280, CV_8UC3, cv::Scalar(22, 25, 28)); // Allocate the fixed-size BGR canvas with the common dark background color.
     text(image, "TABLETOP DELIVERY", 18, 32, .8, white, 2);
     text(image,
          demo ? "SIMULATION | CORAL OFF"
               : (coral_required ? "LIVE SENSORS | CORAL USB" : "LIVE SENSORS | CORAL DISABLED"),
          770, 30, .51, cyan);
-    text(image, "CAMERA + BLUE MARKER", 18, 64, .5, muted);
+    const bool yolo_controls = evaluation && evaluation->yolo_controls; // Detector control reuses candidate storage for YOLO boxes; it does not produce a second visual detection.
+    const char *camera_heading = !evaluation ? "CAMERA + BLUE MARKER"
+        : !yolo_controls ? "CAMERA + MARKER | YOLO COMPARISON"
+        : evaluation->figure_model ? "CAMERA + YOLO FIGURE | EVALUATION"
+        : "CAMERA + YOLO PERSON | EVALUATION"; // Match the heading to the active model's target class.
+    text(image, camera_heading, 18, 64, .5, muted); // Describe which visual source controls the virtual robot.
     if (frame) { // Only wrap and display camera pixels when the frame contract is valid.
         cv::Mat camera(480, 640, CV_8UC3, const_cast<unsigned char *>(frame.pixels->data())); // Borrow the immutable packed BGR storage for read-only display/preprocessing operations.
         camera.copyTo(image(cv::Rect(18, 80, 640, 480))); // Copy pixels into the canvas so overlays never modify the shared sensor frame.
-        if (mask) { // Replace the camera panel with a threshold preview when diagnostic mask mode is enabled.
+        if (mask && !yolo_controls) { // Replace the camera panel with a threshold preview when diagnostic mask mode is enabled.
             cv::Mat hsv, binary, colored; // Own HSV, single-channel threshold, and three-channel display intermediates.
             cv::cvtColor(camera, hsv, cv::COLOR_BGR2HSV); // Convert only the visualization input into OpenCV HSV for the diagnostic threshold preview.
             cv::inRange(hsv, cv::Scalar(c.hsv_low[0], c.hsv_low[1], c.hsv_low[2]),
@@ -132,12 +137,12 @@ cv::Mat render(const Config &c, const Inputs &inputs, const Frame &frame, const 
         }
         cv::rectangle(image, {18 + c.roi[0], 80 + c.roi[1]}, {18 + c.roi[2] - 1, 80 + c.roi[3] - 1},
                       cv::Scalar(85, 85, 60), 1); // Draw the calibrated camera ROI offset into the camera panel; upper limits are exclusive.
-        if (r.track_status != STALE_CAMERA && r.track_status != STALE_LIDAR &&
-            r.track_status != TIMING_GAP) // Suppress marker boxes when stale/mismatched observations make their overlay misleading.
+        if (!yolo_controls && r.track_status != STALE_CAMERA && r.track_status != STALE_LIDAR &&
+            r.track_status != TIMING_GAP) // Draw green candidates only for marker control; detector candidates already receive one labeled purple box below.
             for (int i = 0; i < r.marker_count; ++i) { // Draw only marker candidates within the core's bounded valid output prefix.
                 const auto &m = r.markers[i]; // Read this candidate's image bounds without copying the result structure.
                 cv::rectangle(image, cv::Rect(18 + m.x, 80 + m.y, m.w, m.h), green, 2); // Offset the marker's camera-pixel rectangle into its display panel.
-                text(image, "BLUE MARKER", 18 + m.x, std::max(95, 75 + m.y), .4, green);
+                text(image, "BLUE MARKER", 18 + m.x, std::max(95, 75 + m.y), .4, green); // This rectangle represents the independent color-marker observation, never a duplicate detector box.
             }
     } else
         text(image, "Waiting for camera...", 140, 300, .7, amber); // Coral results belong to an earlier frame: show their age and avoid drawing stale boxes over a newer image as if spatially synchronized.
@@ -195,7 +200,7 @@ cv::Mat render(const Config &c, const Inputs &inputs, const Frame &frame, const 
     const bool moving = r.robot_status == DRIVING || r.robot_status == DETOUR; // Choose the moving visual style only for the core's two travel states.
     cv::fillConvexPoly(image, corners, 4, moving ? cyan : amber, cv::LINE_AA, 8); // Fill the oriented robot artwork using the same fixed-point scale as the corners.
     line(image, r.robot, {r.robot.x + .023 * sn, r.robot.y + .023 * cs}, cv::Scalar(20, 30, 30), 2); // Draw a short heading indicator from the robot center toward its displayed forward direction.
-    text(image, track_name(r.track_status), 705, 110, .53,
+    text(image, evaluation && evaluation->yolo_controls ? detector_track_name(r.track_status, evaluation->figure_model) : track_name(r.track_status), 705, 110, .53,
          r.track_status == TRACKING ? green : amber, 2);
     if (r.track_status == TRACKING) { // Show position-dependent figure geometry/text only while the fused track is valid.
         text(image, "x " + fixed(r.xy.x * 100) + " cm", 705, 148, .65, cyan);
@@ -217,6 +222,18 @@ cv::Mat render(const Config &c, const Inputs &inputs, const Frame &frame, const 
     text(image, "Pair " + fixed(r.pair_delta * 1000, 0) + " ms", 705, 379, .43);
     text(image, "Host receive pairing", 705, 415, .35, muted);
     text(image, "not hardware sync", 705, 435, .35, muted);
+    if(evaluation) {
+        text(image,std::string(evaluation->figure_model ? "Figures " : "People ")+std::to_string(evaluation->people)+" / fit "+std::to_string(evaluation->eligible),705,463,.35,cyan);
+        text(image,"Best score: "+fixed(evaluation->confidence,2),705,483,.35,cyan);
+        text(image,detector_track_name(evaluation->yolo.track_status, evaluation->figure_model),705,503,.32,amber);
+        if(evaluation->marker.track_status==TRACKING && evaluation->yolo.track_status==TRACKING)
+            text(image,"Delta "+fixed(std::hypot(evaluation->marker.xy.x-evaluation->yolo.xy.x,evaluation->marker.xy.y-evaluation->yolo.xy.y)*100)+" cm",705,523,.35,cyan);
+        if(frame && frame.sequence==coral.source_frame.sequence) for(const auto &d:coral.detections) {
+            if(d.id!=0 && d.id!=(coral.figure_model ? 1 : 11)) continue; // Use the selected model's labels on the exact inference frame.
+            cv::rectangle(image,{18+int(d.x0*640),80+int(d.y0*480)},{18+int(d.x1*640),80+int(d.y1*480)},purple,1);
+            text(image,std::string(d.id==0?(coral.figure_model ? "figure " : "person "):"stop ")+fixed(d.score,2),18+int(d.x0*640),std::max(95,75+int(d.y0*480)),.37,purple);
+        }
+    }
     text(image, std::string("ROBOT: ") + robot_name(r.robot_status), 18, 610, .8,
          moving ? green : amber, 2);
     text(image,
@@ -227,7 +244,7 @@ cv::Mat render(const Config &c, const Inputs &inputs, const Frame &frame, const 
     if (r.robot_status == TOO_CLOSE) // Explain how to release a current footprint overlap without changing planner behavior.
         hint = "Figure buffer overlaps robot. Move the figure away to release it.";
     else if (r.robot_status == TRACK_LOST) // Explain the sensing evidence needed before virtual movement can resume.
-        hint = "Waiting for one fresh blue marker with an unambiguous LiDAR match.";
+        hint = evaluation && evaluation->yolo_controls ? "Waiting for one fresh target detection with an unambiguous LiDAR match." : "Waiting for one fresh blue marker with an unambiguous LiDAR match.";
     else if (r.robot_status == BLOCKED) // Explain that no route fits the lane's current geometry.
         hint = "No route fits in this lane. Move the figure aside.";
     else if (r.robot_status == YIELDING) // Describe the temporary wait before recovery or detour selection.
@@ -245,6 +262,7 @@ cv::Mat render(const Config &c, const Inputs &inputs, const Frame &frame, const 
                               std::to_string(coral.detections.size()) + " detections | age " +
                               fixed((now - coral.frame_time) * 1000, 0) + " ms"
                         : "Coral: HOLD | " + coral.detail; // Compose inference availability, measured Invoke time, detections, and source-image age.
+    if(evaluation && coral.healthy) coral_line="Coral YOLO | invoke "+fixed(coral.inference_ms)+" ms | total "+fixed(coral.total_ms)+" ms | source age "+fixed((now-coral.frame_time)*1000,0)+" ms";
     text(image, coral_line.substr(0, 115), 18, 680, .45, purple);
     text(image, "C++ step " + fixed(step_ms) + " ms", 1040, 680, .4, muted);
     text(image,

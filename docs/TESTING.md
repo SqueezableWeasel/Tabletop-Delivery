@@ -27,6 +27,9 @@ For the Pi, follow the root README and run `bash build_pi.sh`. The script builds
 
 | CTest entry | Source | What it checks |
 | --- | --- | --- |
+| `yolo` | `tests/yolo_test.cpp` | Quantized decoding, both tensor orientations, class-aware NMS, letterbox inversion, profile mismatch rejection, and time-paired detector observations. |
+| `evaluation_ui` | `tests/evaluation_ui_test.cpp` | Comparison logs, profile-specific headings, one detector box per observation, and suppression on mismatched source frames. |
+| `evaluation_cli` | `tests/evaluation_cli_test.cmake` | Model/profile selection, threshold aliases, and conflicting mode rejection. |
 | `planner` | `tests/planner_test.cpp` | Direct paths, detours, blocked passages, occupied endpoints, and 252 obstacle positions; validates each returned segment. |
 | `runtime` | `tests/runtime_test.cpp` | 22 behavior cases covering segmentation/fusion, measured travel speed and pause at different pacing fractions, movement, loss/staleness, ambiguity, sign latching, duplicate inference, stalls, jitter, raw intrusion, heading limits, and boundary changes. |
 | `model` | `tests/model_test.cpp` | Rejects non-model input, invalid offsets, and an operator name appearing only in unrelated data. Optional CLI argument checks a real compiled model. |
@@ -37,12 +40,12 @@ For the Pi, follow the root README and run `bash build_pi.sh`. The script builds
 | `app_demo` | Application CLI | Bounded headless simulation using an explicit configuration. |
 | `app_resources` | `tests/resource_paths_test.cmake` | Launch from isolated directories, save a final snapshot, select active calibration without --config and apply default pacing when omitted, honor explicit overrides, and reject missing explicit or active configurations. |
 
-The core-only profile contains three entries, the desktop application seven, and the hardware application eight. Runtime behavior cases are subtests within the `runtime` entry.
+The core-only profile contains four entries, the desktop application eleven, and the hardware application twelve. Runtime behavior cases are subtests within the `runtime` entry.
 
 To inspect the downloaded model independently on the Pi or a desktop build:
 
 ```bash
-./build/model_test models/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite
+./build/model_test models/figure_yolov8n_320_edgetpu.tflite
 ```
 
 That parser check does not invoke the TPU. The inference check below does.
@@ -50,27 +53,30 @@ That parser check does not invoke the TPU. The inference check below does.
 ## Hardware acceptance checks
 
 1. Enumerate the camera and serial adapter; ensure your user can access both and the Coral.
-2. Run `./build/tabletop_delivery --check-coral` and require the native USB warm-up PASS message.
-3. Run `./build/tabletop_delivery --headless --seconds 20` for bounded acquisition and inspect the resulting session records.
-4. Open the live window, verify marker/cluster alignment at several calibrated positions, then start virtual motion.
-5. Exercise direct movement, intrusion, detour, blocked narrow lane, marker occlusion, and boundary expansion/shrinking.
+2. Run `./build/tabletop_delivery --yolo-profile figure --check-coral` and require the native USB warm-up PASS message.
+3. Run `./build/tabletop_delivery --yolo-profile figure --tracking yolo --headless --seconds 20` for bounded acquisition and inspect the resulting session records.
+4. Open the live window, verify figure/cluster alignment at several calibrated positions, then start virtual motion.
+5. Exercise direct movement, intrusion, detour, blocked narrow lane, figure occlusion, and boundary expansion/shrinking.
 6. Save a radius, restart, and verify restoration; inspect a snapshot's radius and validity flags.
 
 ## Package verification
 
-Verification performed on 20 November 2026:
+Verification performed on 20 November 2026 for the merged package:
 
-- Compiled the complete desktop application and tests using MSVC and OpenCV 4.10.
-- Passed all eight desktop CTest entries, including measured calibration validation, 22 runtime cases, and the 252-position planner sweep.
-- Passed ARM64 compiler checks for sensor, Coral, main-loop, display, configuration, core, and camera-control-test sources against the available Pi headers.
-- Ran a bounded 30-second simulation and inspected its final snapshot and state transitions.
-- Inspected the calibration capture preview and verified that saved settings preserve distinct camera and LiDAR distance references.
-- Checked local documentation links, code formatting, shell helper paths, and archive contents.
+- Built the complete desktop application with MSVC and OpenCV 4.10.
+- Passed all 11 desktop CTest entries, including custom-model decoding, detector CLI selection, the duplicate-overlay regression, calibration persistence, 22 runtime cases, and the 252-position planner sweep.
+- Checked the bundled compiled model with the bounded model parser and its SHA-256 checksum.
+- Checked documentation/media links and ZIP/tar contents, excluding machine-specific configuration and build/runtime caches.
+- Reviewed both supplied physical demo recordings: nominal/narrow-lane delivery and stop-sign hold/release, using the custom model and corrected overlay.
 
-These checks do not execute physical Pi camera buffers, LiDAR scans, USB inference, or Linux build/download scripts for this package. Complete the hardware acceptance checks on the target Pi, including the three physical captures in the [16-inch calibration walkthrough](CALIBRATION.md). The included seed anchors are not a measured calibration of a new camera-row placement. No measured end-to-end frame-rate guarantee, latency distribution, or CPU-versus-TPU speedup is asserted.
+Desktop tests do not invoke physical Pi camera buffers, serial LiDAR, or USB
+inference. The recordings provide qualitative hardware evidence for the user's
+setup; run the acceptance checks after deployment to another installation.
+Calibration depends on the physical mount. No end-to-end latency distribution,
+generalization guarantee, or CPU-versus-TPU speedup is asserted.
 
 ## Maintaining the code
 
 Source style is defined in `.clang-format`; shell scripts use LF line endings through `.gitattributes`. Keep algorithm changes covered by behavior or geometry tests rather than tests that only reproduce implementation details. Keep C++ comments focused on units, ownership, state transitions, invariants, and failure conditions. The [annotation guide](ANNOTATED_SOURCE.md) explains how statement comments cover wrapped expressions, guards, and scopes.
 
-Build output, SDK/runtime downloads, detector binaries, run data, and local preferences are ignored by Git. Documentation images are deliberate example assets and remain tracked. Dependency identities and notices are listed in [THIRD_PARTY.md](../THIRD_PARTY.md).
+Build output, SDK/runtime downloads, optional generated detectors, run data, and local preferences are ignored by Git. The custom figure model, checksum, labels, manifest, and demo assets are deliberately tracked. Documentation images are deliberate example assets and remain tracked. Dependency identities and notices are listed in [THIRD_PARTY.md](../THIRD_PARTY.md).

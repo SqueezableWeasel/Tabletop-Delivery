@@ -1,6 +1,6 @@
 /**
  * @file
- * USB delegate/interpreter lifecycle and SSD inference implementation.
+ * USB delegate/interpreter lifecycle with explicit SSD and YOLO inference contracts.
  * The private runtime must match this application's TensorFlow Lite layouts.
  * Model bytes, interpreter, delegate, and loaded library have nested lifetimes.
  */
@@ -29,6 +29,18 @@ struct Option { // Mirror the optional name/value configuration pair accepted by
     const char *value; // Null-terminated option value; this application supplies no custom options.
 };
 class Engine { // Encapsulate model memory, native runtime, delegate, and interpreter under one lifetime.
+    DetectorOptions detector_; // Explicit SSD or YOLO contract; never infer a model type from its filename.
+    Letterbox box_; // Per-model preprocessing and inverse-coordinate transform.
+    YoloTensor yolo_tensor(const TfLiteTensor *t) const { // Validate the output type before exposing a bounded portable view.
+        if (!t || TfLiteTensorNumDims(t) != 3 || TfLiteTensorDim(t,0) != 1)
+            throw std::runtime_error("Expected batch-one rank-three YOLO output");
+        const auto type = TfLiteTensorType(t);
+        if (type != kTfLiteFloat32 && type != kTfLiteInt8 && type != kTfLiteUInt8)
+            throw std::runtime_error("YOLO output must be float32, int8, or uint8");
+        const auto q = TfLiteTensorQuantizationParams(t);
+        return {TfLiteTensorData(t), TfLiteTensorByteSize(t), TfLiteTensorDim(t,1), TfLiteTensorDim(t,2),
+                type == kTfLiteFloat32 ? TensorScalar::Float32 : type == kTfLiteInt8 ? TensorScalar::Int8 : TensorScalar::UInt8, q.scale, q.zero_point};
+    }
     void *library_ = nullptr; // dlopen handle must remain alive while delegate functions or objects can be used.
     TfLiteDelegate *delegate_ = nullptr; // USB delegate installed into the interpreter; freed by the runtime's own deleter.
     void (*free_delegate_)(TfLiteDelegate *) = nullptr; // Retain the matching library function needed to destroy the delegate safely.
@@ -82,7 +94,7 @@ class Engine { // Encapsulate model memory, native runtime, delegate, and interp
 
   public:
     std::string version; // Owned copy of the runtime's reported version for diagnostics.
-    Engine(const std::string &path, const std::string &library) { // Startup pipeline: inspect model, load/check runtime, select USB, attach the delegate, validate tensor layouts, and invoke a zero-image warm-up. Any failure unwinds owned resources and prevents the application from claiming readiness.
+    Engine(const std::string &path, const std::string &library, DetectorOptions options) : detector_(options) { // Startup pipeline: inspect model, load/check runtime, select USB, attach the delegate, validate tensor layouts, and invoke a zero-image warm-up. Any failure unwinds owned resources and prevents the application from claiming readiness.
         try {
             stage("Reading and validating detector model");
             model_data_ = read_detector_model(path); // Read bounded owned bytes and require the Edge TPU custom operator before runtime setup.
@@ -167,6 +179,24 @@ class Engine { // Encapsulate model memory, native runtime, delegate, and interp
                 throw std::runtime_error(
                     "Coral tensor allocation failed; check native runtime compatibility");
             stage("Validating detector tensor layouts");
+            if (detector_.kind == DetectorKind::YoloV8) { // YOLO uses quantized NHWC RGB and decoded predictions for the selected class profile, with NMS in C++.
+                if (TfLiteInterpreterGetInputTensorCount(interpreter_) != 1 || TfLiteInterpreterGetOutputTensorCount(interpreter_) != 1)
+                    throw std::runtime_error("Expected one YOLO input and one decoded output; export detect with nms=False");
+                auto *in = TfLiteInterpreterGetInputTensor(interpreter_,0);
+                const auto type = TfLiteTensorType(in);
+                if ((type != kTfLiteUInt8 && type != kTfLiteInt8) || TfLiteTensorNumDims(in) != 4 ||
+                    TfLiteTensorDim(in,0) != 1 || TfLiteTensorDim(in,3) != 3)
+                    throw std::runtime_error("YOLO requires quantized NHWC [1,H,W,3] RGB input");
+                box_ = letterbox(TfLiteTensorDim(in,2), TfLiteTensorDim(in,1));
+                if (TfLiteTensorByteSize(in) != std::size_t(box_.width)*box_.height*3)
+                    throw std::runtime_error("Invalid YOLO input byte count");
+                auto q = TfLiteTensorQuantizationParams(in);
+                quantized_rgb(0, q.scale, q.zero_point, type == kTfLiteInt8); // Check scale/zero point before startup succeeds.
+                yolo_elements(yolo_tensor(output(0)), yolo_classes(detector_)); // Reject a stock/custom profile mismatch before the first real frame.
+                std::cout << "YOLOv8 " << (detector_.profile == YoloProfile::Figure ? "figure + stop_sign " : "COCO-80 ") << box_.width << 'x' << box_.height
+                          << " | target threshold " << detector_.person_confidence
+                          << " | boxes " << (detector_.normalized_boxes ? "normalized" : "pixels") << '\n';
+            } else {
             if (TfLiteInterpreterGetInputTensorCount(interpreter_) != 1 ||
                 TfLiteInterpreterGetOutputTensorCount(interpreter_) != 4) // Require exactly one image input and the four postprocessed SSD outputs.
                 throw std::runtime_error(
@@ -192,13 +222,21 @@ class Engine { // Encapsulate model memory, native runtime, delegate, and interp
                 TfLiteTensorByteSize(output(2)) != std::size_t(capacity) * sizeof(float) ||
                 TfLiteTensorByteSize(output(3)) != sizeof(float)) // Bound capacity and require consistent box/class/score/count byte sizes before inference.
                 throw std::runtime_error("Invalid SSD output dimensions");
-            std::vector<unsigned char> zero(300 * 300 * 3, 0); // Supply a valid all-black RGB tensor for a real startup invocation.
+            }
+            auto *input = TfLiteInterpreterGetInputTensor(interpreter_,0);
+            std::vector<unsigned char> zero(TfLiteTensorByteSize(input),0); // Size warmup to the validated model rather than assuming SSD dimensions.
+            if (detector_.kind == DetectorKind::YoloV8) {
+                const auto q = TfLiteTensorQuantizationParams(input);
+                std::fill(zero.begin(),zero.end(),quantized_rgb(114,q.scale,q.zero_point,TfLiteTensorType(input)==kTfLiteInt8));
+            }
             stage("Copying warmup input");
             if (TfLiteTensorCopyFromBuffer(input, zero.data(), zero.size()) != kTfLiteOk) // Copy the complete warm-up image into interpreter-owned input memory.
                 throw std::runtime_error("Native Coral warmup input copy failed");
             stage("Invoking detector on USB accelerator");
             if (TfLiteInterpreterInvoke(interpreter_) != kTfLiteOk) // Invoke the graph and fail explicitly if runtime execution returns an error.
                 throw std::runtime_error("Native Coral warmup inference failed");
+            if (detector_.kind == DetectorKind::YoloV8)
+                decode_yolov8(yolo_tensor(output(0)),box_,detector_); // Check numeric output decoding as part of --check-coral too.
             std::cout << "TensorFlow Lite " << TfLiteVersion() << " | libedgetpu " << version
                       << " | USB delegate active | native warmup passed\n"; // The stock resolver cannot execute edgetpu-custom-op on the CPU. Successful execution of this model with fallback disabled proves the required custom operation was handled by the USB delegate.
         } catch (...) {
@@ -209,18 +247,39 @@ class Engine { // Encapsulate model memory, native runtime, delegate, and interp
     ~Engine() { // Release interpreter, model, delegate, and library when the owning service shuts down.
         cleanup(); // Release any successfully acquired resources in dependency order.
     }
-    std::vector<Detection> infer(const Frame &frame, double &milliseconds) { // CPU preparation resizes BGR to RGB. The measured interval covers interpreter Invoke, including USB/runtime and CPU postprocessing inside invocation; it excludes resize/copy work and is not end-to-end sensor latency.
-        cv::Mat bgr(480, 640, CV_8UC3, const_cast<unsigned char *>(frame.pixels->data())); // Wrap immutable source pixels for read-only OpenCV preprocessing; no copy is made here.
-        cv::Mat resized, rgb; // Own CPU intermediate images for resizing and channel-order conversion.
-        cv::resize(bgr, resized, {300, 300}); // Scale the paired camera format to the detector's required 300x300 input dimensions.
-        cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB); // Convert camera BGR bytes to the RGB channel order required by the model.
-        if (TfLiteTensorCopyFromBuffer(TfLiteInterpreterGetInputTensor(interpreter_, 0), rgb.data,
-                                       rgb.total() * rgb.elemSize()) != kTfLiteOk) // Copy the prepared RGB pixels into the validated interpreter input buffer.
+    std::vector<Detection> infer(const Frame &frame, double &milliseconds, double &preprocess_ms,
+                                 double &postprocess_ms, double &total_ms) { // Report worker timing separately from capture/result age.
+        const double began = clock_now();
+        cv::Mat bgr(480,640,CV_8UC3,const_cast<unsigned char *>(frame.pixels->data()));
+        cv::Mat resized, rgb;
+        auto *input = TfLiteInterpreterGetInputTensor(interpreter_,0);
+        if (detector_.kind == DetectorKind::YoloV8) {
+            cv::resize(bgr,resized,{box_.resized_width,box_.resized_height});
+            cv::Mat padded(box_.height,box_.width,CV_8UC3,cv::Scalar(114,114,114));
+            resized.copyTo(padded(cv::Rect(box_.left,box_.top,box_.resized_width,box_.resized_height)));
+            cv::cvtColor(padded,rgb,cv::COLOR_BGR2RGB);
+            const auto q = TfLiteTensorQuantizationParams(input);
+            const bool signed_input = TfLiteTensorType(input) == kTfLiteInt8;
+            unsigned char lookup[256]; // Avoid hundreds of thousands of round/divide operations per Pi frame.
+            for (int value=0; value<256; ++value) lookup[value]=quantized_rgb(static_cast<unsigned char>(value),q.scale,q.zero_point,signed_input);
+            for (std::size_t i=0; i<rgb.total()*3; ++i) rgb.data[i]=lookup[rgb.data[i]];
+        } else {
+            cv::resize(bgr,resized,{300,300});
+            cv::cvtColor(resized,rgb,cv::COLOR_BGR2RGB);
+        }
+        if (TfLiteTensorCopyFromBuffer(input,rgb.data,rgb.total()*rgb.elemSize()) != kTfLiteOk)
             throw std::runtime_error("Coral input copy failed");
-        const double start = clock_now(); // Start the Invoke-only timer after CPU resizing, color conversion, and input copying.
-        if (TfLiteInterpreterInvoke(interpreter_) != kTfLiteOk) // Invoke the graph and fail explicitly if runtime execution returns an error.
-            throw std::runtime_error("Native Coral invocation failed");
-        milliseconds = (clock_now() - start) * 1000; // Measure invocation duration in milliseconds; this includes runtime/USB and graph CPU work.
+        const double start=clock_now();
+        preprocess_ms=(start-began)*1000;
+        if (TfLiteInterpreterInvoke(interpreter_) != kTfLiteOk) throw std::runtime_error("Native Coral invocation failed");
+        const double invoked=clock_now();
+        milliseconds=(invoked-start)*1000;
+        if (detector_.kind == DetectorKind::YoloV8) {
+            auto result=decode_yolov8(yolo_tensor(output(0)),box_,detector_);
+            postprocess_ms=(clock_now()-invoked)*1000;
+            total_ms=(clock_now()-began)*1000;
+            return result;
+        }
         const auto *boxes = static_cast<const float *>(TfLiteTensorData(output(0))); // Borrow the postprocessed box array from output zero after successful invocation.
         const auto *classes = static_cast<const float *>(TfLiteTensorData(output(1))); // Borrow zero-based COCO class values from output one.
         const auto *scores = static_cast<const float *>(TfLiteTensorData(output(2))); // Borrow confidence values from output two.
@@ -247,6 +306,8 @@ class Engine { // Encapsulate model memory, native runtime, delegate, and interp
             if (x1 > x0 && y1 > y0) // Discard boxes with zero or negative area after clipping.
                 result.push_back({int(classes[i]), scores[i], x0, y0, x1, y1}); // Store accepted class, confidence, and normalized XYXY coordinates in the application contract.
         }
+        postprocess_ms=(clock_now()-invoked)*1000;
+        total_ms=(clock_now()-began)*1000;
         return result; // Return an owned list; future interpreter invocations may overwrite the underlying output tensors.
     }
 };

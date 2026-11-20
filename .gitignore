@@ -3,6 +3,18 @@
 /native_runtime/
 /third_party/
 /models/*.tflite
+/models/*.pt
+/models/*_saved_model/
+/models/*_manifest.json
+/models/*.sha256
+!/models/figure_yolov8n_320_edgetpu.tflite
+!/models/figure_yolov8n_320_edgetpu.sha256
+!/models/figure_yolov8n_320_manifest.json
+/runs/
+/.venv-yolo/
+/datasets/
+/.ipynb_checkpoints/
+/calibration_image_sample_data_*.npy
 
 # Run data, local preferences, and diagnostics
 /delivery_runs/
@@ -12,6 +24,7 @@
 *.json.pending.*
 *.boundary.json
 *.log
+!/evidence/figure_yolov8n_320_full_integer_quant_edgetpu.log
 *.part
 /coral_debug_*.txt
 /native_live_debug.txt

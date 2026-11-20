@@ -50,7 +50,7 @@ inline Frame paired_frame(const Inputs &inputs) { // Choose nearest host receive
                              });
 }
 struct Detection { // One COCO detection: zero-based class ID, confidence, and normalized XYXY box.
-    int id; // Zero-based COCO class identifier returned by the supplied SSD model.
+    int id; // Model-specific zero-based class ID; custom YOLO uses figure=0 and stop_sign=1.
     float score, x0, y0, x1, y1; // Confidence and normalized image bounds ordered left, top, right, bottom.
 };
 struct CoralState { // Ready describes the worker/interpreter; healthy additionally requires recent source and result timestamps. A sequence identifies one completed inference.
@@ -58,6 +58,10 @@ struct CoralState { // Ready describes the worker/interpreter; healthy additiona
     int sequence = -1; // Negative sequence distinguishes missing data from a valid first scan or inference.
     double frame_time = -1, received = -1, inference_ms = 0; // Source-frame receive time (s), inference completion time (s), and Invoke duration (ms).
     std::string detail; // Human-readable readiness or worker-failure detail for diagnostics.
+    Frame source_frame; // Retain the exact immutable image used by inference for temporal pairing and overlays.
+    bool yolo = false; // Select class names and model-contract diagnostics independently of tracking mode.
+    bool figure_model = false; // Custom model labels must follow the selected profile, not COCO class IDs.
+    double preprocess_ms = 0, postprocess_ms = 0, total_ms = 0; // Measure CPU preparation, decoding, and the complete worker operation.
     std::vector<Detection> detections; // Accepted detections from one completed inference result.
 };
 inline bool coral_fresh(const CoralState &state, double now) { // Check both result age and source-image age so fast delivery of an already stale inference cannot satisfy the motion gate.

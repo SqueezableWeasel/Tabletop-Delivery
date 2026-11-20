@@ -11,6 +11,7 @@ This guide explains the application's execution order and each owned source comp
 | Configuration and presentation | `src/app.h`, `src/config.cpp`, `src/view.cpp` | OpenCV |
 | Sensor acquisition | `src/sensors.cpp`, `src/camera_controls.h` | libcamera, SLAMTEC SDK, Linux DMA APIs |
 | Inference | `src/coral.cpp`, `src/coral_engine.h`, `src/coral_abi.h`, `src/model_check.h` | OpenCV, TensorFlow Lite, project-local libedgetpu |
+| Detector decoding and comparison | `src/yolo.h`, `src/evaluation.h` | Core contracts and the C++ standard library |
 | Application coordination | `src/main.cpp` | The interfaces above |
 | Desktop backend | `src/no_hardware.cpp` | Rejecting implementations of hardware interfaces |
 
@@ -36,9 +37,9 @@ The core handle uses a custom `unique_ptr` deleter. Sensor and inference service
 
 1. Read pending radius/save requests. Apply geometry through `core_set_boundary()` before motion can occur.
 2. Obtain a snapshot from physical sensors or `DemoSource`.
-3. Select the camera frame nearest the scan's host receive time. Independently submit the newest frame for inference.
+3. Submit the newest camera frame for inference. Marker mode pairs a frame to the newest scan; detector/comparison modes use the completed inference source frame and a buffered scan near its host receive time.
 4. Inspect acquisition and inference health. Track successful input startup and persistent stream failures.
-5. Call `core_step()` with paired input, one-shot controls, and the current semantic gate.
+5. Call `core_step()` for marker observations or `step_detector()` / `core_step_observations()` for detector candidates. Comparison runs an independent shadow track without a second moving robot.
 6. Clear the consumed command, log state changes, and render when the display/snapshot schedule requires it.
 7. Translate keyboard events into requests for the next iteration and sleep for the remaining loop budget.
 
@@ -147,7 +148,7 @@ Returns outside the metric ROI are discarded. Remaining returns are angle-sorted
 
 ### Association and confirmation: `Engine::track()`
 
-Freshness is checked even when the scan sequence is unchanged. New sequences additionally require an acceptable camera/scan receive-time difference. Exactly one image marker is allowed. Its horizontal centroid is interpolated between neighboring calibration anchors, with bounded extrapolation.
+Freshness is checked even when the scan sequence is unchanged. New sequences additionally require an acceptable camera/scan receive-time difference. Exactly one eligible visual observation is allowed: a marker centroid or the horizontal center of a detector box. Its horizontal centroid is interpolated between neighboring calibration anchors, with bounded extrapolation.
 
 Exactly one group must lie within the bearing gate. No group is camera-only evidence; two groups are ambiguous. Both conditions invalidate tracking. Successful initialization requires consecutive spatially consistent scans. Long gaps force reacquisition; impossible jumps are rejected using a fixed allowance plus a maximum-speed term.
 
@@ -185,21 +186,21 @@ Heading turns at no more than 3 rad/s. The footprint is circular, so display ori
 
 `Engine` owns the loaded library, delegate, model bytes/model handle, interpreter options, and interpreter. Startup checks the model, loads the private library, verifies its layout fingerprint and resolved TensorFlow Lite version, enumerates USB devices, and creates a USB delegate.
 
-The interpreter uses one CPU worker and disables delegate fallback. Input must be uint8 `[1,300,300,3]`; four float outputs must have the SSD boxes/classes/scores/count layout. Capacity and byte lengths are checked. A zero-image invocation must succeed before readiness is reported.
+The interpreter uses one CPU worker and disables delegate fallback. SSD expects uint8 `[1,300,300,3]` input and four float outputs. YOLO validates its integer input/output tensors and selected profile: six output channels for figure/stop_sign, or 84 for COCO. The included custom model uses `[1,320,320,3]` INT8 input and `[1,6,2100]` INT8 output. Capacity, byte lengths, quantization, and class contracts are checked before a warm-up invocation can report readiness.
 
 Cleanup destroys interpreter/options/model before the delegate and unloads the shared library last. Model bytes outlive the TFLite model handle. Errors use the same cleanup path.
 
 ### Inference and results
 
-`infer()` resizes BGR input to 300 × 300, converts it to RGB, and copies it into the input tensor. The timer surrounds `TfLiteInterpreterInvoke`; it includes USB/runtime and any CPU operations inside invocation but excludes image preparation.
+`infer()` prepares SSD with a direct resize. YOLO uses aspect-preserving RGB letterboxing and integer quantization from the tensor scale/zero point. The invocation timer surrounds `TfLiteInterpreterInvoke`, including USB/runtime and any CPU operators inside the graph. Separate measurements record preprocessing, decoding/NMS, and total worker time.
 
-Output parsing checks finite/in-range counts, scores, classes, and boxes. Scores below 0.45 are omitted; coordinates are clipped to the normalized image range, and degenerate boxes are discarded. CPU work includes preparation and SSD postprocessing; the TPU executes the compiled network operation.
+SSD parsing checks finite/in-range counts, scores, classes, and boxes and filters scores below 0.45. `src/yolo.h` dequantizes either supported tensor orientation, reads four box channels plus the selected class count, filters scores, reverses letterboxing, and performs class-aware non-maximum suppression. Its `person_observations()` helper is shared by COCO person and custom figure class zero; the name does not imply another detector. Supported neural-network operations execute on the TPU; the Pi handles remaining graph operations and application processing.
 
 ### Worker — `src/coral.cpp`
 
 Construction warms up the engine, then starts one worker. `submit()` ignores invalid/duplicate frames and replaces the single pending frame. The worker moves that frame out under a mutex and releases the mutex during inference. This permits concurrent submission without accumulating a backlog.
 
-Results carry a new sequence and both source-frame and completion times. Class 12 with score at least 0.60 is a stop-sign observation. The core, rather than the worker, owns confirmation/release timing. `status()` copies the result and recomputes freshness after locking. Destruction wakes and joins the worker before destroying its engine.
+Results carry a new sequence and both source-frame and completion times. Stop-sign observations use score at least 0.60 and the selected model's class ID: custom figure 1, COCO YOLO 11, or SSD 12. The core, rather than the worker, owns confirmation/release timing. `status()` copies the result and recomputes freshness after locking. Destruction wakes and joins the worker before destroying its engine.
 
 ### Identity/model helpers
 
@@ -217,7 +218,7 @@ Boundary loading uses a temporary Config and commits only after validation. Savi
 
 ## 11. Display and logging — `src/view.cpp`
 
-Drawing helpers map meters to screen coordinates with Y forward/up. Fixed-point OpenCV drawing retains subpixel movement. `render()` composes the paired image, marker box/mask, raw scan context, configured lane, selected target, trail, path, robot, status, ages, and boundary controls.
+Drawing helpers map meters to screen coordinates with Y forward/up. Fixed-point OpenCV drawing retains subpixel movement. `render()` composes the paired image, visual boxes, raw scan context, configured lane, selected target, trail, route, robot, status, ages, and boundary controls. Marker/comparison control draws the independent green marker candidates. Detector control skips that pass and draws one purple box per detection on its exact source frame, with the profile-appropriate figure/person label. This prevents duplicate tracker/detector boxes. HSV mask preview applies only to marker/comparison control.
 
 Detector boxes are not painted over an unrelated newer image; the display reports inference age instead. Other LiDAR returns remain context rather than planner obstacles. Rendering only consumes state.
 
@@ -229,7 +230,7 @@ Detector boxes are not painted over an unrelated newer image; the display report
 
 `CMakeLists.txt` builds the portable core first. `TABLETOP_BUILD_APP=OFF` leaves only dependency-light tests. The application adds OpenCV and either Linux hardware sources or `no_hardware.cpp`. Hardware-off stubs reject live calls explicitly. The selected backend is a build decision; `--demo` is a runtime choice.
 
-`build_pi.sh` builds the chosen SDK, configures hardware dependencies, compiles, and runs CTest. `fetch_model.sh` downloads a checksum-verified detector to the local models directory. `build_coral_runtime.sh` downloads pinned source, verifies it, builds into `native_runtime/`, and preserves its license notice. `diagnose.sh` collects a read-only dependency/device inventory; `debug_coral.sh` rebuilds symbols and captures the Coral-only debugger trace.
+`build_pi.sh` builds the chosen SDK, configures hardware dependencies, compiles, and runs CTest. `fetch_model.sh` downloads the optional SSD detector; the custom compiled figure model is bundled with its checksum. The export notebooks/scripts prepare models offline and are not part of the live C++ process. `build_coral_runtime.sh` downloads pinned source, verifies it, builds into `native_runtime/`, and preserves its license notice. `diagnose.sh` collects a read-only dependency/device inventory; `debug_coral.sh` rebuilds symbols and captures the Coral-only debugger trace.
 
 The private runtime's CMake recipe derives the upstream C++ source list, prepares two delegate wrappers against the installed public TFLite API, generates FlatBuffer and firmware headers, and links TensorFlow Lite, USB, FlatBuffers, and Abseil. Adjusted wrapper copies stay in the build directory; upstream source files remain intact. Required symbols must resolve at link time.
 

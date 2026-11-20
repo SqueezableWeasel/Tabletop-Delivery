@@ -1,0 +1,63 @@
+{
+  "weights_sha256": "c0edd4275ef6d42deb5aaf8a792de4fe15939edcf7f9cd08693d931997a0f39b",
+  "dataset_zip_sha256": "33fa7a14efa3b16358e8edce145b88c0fcc622419681575b209ee62dc8597ce6",
+  "training_zip_sha256": "c48223744609dd3cf80c2fabad4a69bfb70a2c9480c0d650a4432fa33a852554",
+  "calibration_images": 60,
+  "validation_images": 18,
+  "evaluation_note": "Exploratory 60/18 holdout from the same train01 recording. Consecutive validation blocks reduce interleaving, but remaining temporal and scene similarity may inflate validation scores. No independent test set.",
+  "int8_sha256": "4389831f7b3199cd7c1c809dc2642c684086e83ebf999c0d17c367fac7f1fe02",
+  "input": {
+    "shape": [
+      1,
+      320,
+      320,
+      3
+    ],
+    "type": "int8",
+    "scale": 0.003921568859368563,
+    "zero_point": -128
+  },
+  "output": {
+    "shape": [
+      1,
+      6,
+      2100
+    ],
+    "type": "int8",
+    "scale": 0.006824628449976444,
+    "zero_point": -117
+  },
+  "edge_tpu_compiled": true,
+  "model": "figure_yolov8n_320_edgetpu.tflite",
+  "sha256": "b01bb93d0dc884450b42fa54117fec06880a6204d0c59f1aa41b834900931086",
+  "class_count": 2,
+  "classes": {
+    "0": "figure",
+    "1": "stop_sign"
+  },
+  "target_class": 0,
+  "stop_sign_class": 1,
+  "box_coordinates": "normalized",
+  "nms_in_graph": false,
+  "ultralytics": "8.3.228",
+  "compiler_version": "Edge TPU Compiler version 16.0.384591198",
+  "compiler_archive_sha256": "f9a97adbf2ff621d24a91721191264f2abc3c1db31e63d9a266d988f907269ce",
+  "min_runtime_version": 14,
+  "pi_hardware_tested": false,
+  "validation": {
+    "pytorch": {
+      "metrics/precision(B)": 0.9840092592485781,
+      "metrics/recall(B)": 1.0,
+      "metrics/mAP50(B)": 0.995,
+      "metrics/mAP50-95(B)": 0.8671233909132348,
+      "fitness": 0.8671233909132348
+    },
+    "int8_cpu": {
+      "metrics/precision(B)": 0.9858799451467555,
+      "metrics/recall(B)": 1.0,
+      "metrics/mAP50(B)": 0.995,
+      "metrics/mAP50-95(B)": 0.8165415575396825,
+      "fitness": 0.8165415575396825
+    }
+  }
+}
