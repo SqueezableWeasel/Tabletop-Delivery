@@ -1,3 +1,6 @@
+
+
+
 # Tabletop Delivery
 
 ### Camera and LiDAR sensor fusion with Raspberry Pi and Coral USB
@@ -19,6 +22,10 @@ https://github.com/user-attachments/assets/7a4f45f4-07a9-4fcf-a3de-5093d7795c0a
 The narrower lane constrains the available routes. The robot yields and replans as the figure moves through its path, then completes the delivery when the route clears. **34 seconds.**
 
 https://github.com/user-attachments/assets/d9e92878-ef92-4d8b-bfda-fc96806b2d2a
+
+### Stop sign response
+
+https://github.com/user-attachments/assets/7bfb96b0-4e8e-46d6-bc74-347398ee92c1
 
 ## Features
 
