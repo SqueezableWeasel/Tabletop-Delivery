@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "lidar_forward_deg": 269.065,
+  "camera_bearing_anchors": [
+    [
+      155.326484,
+      -12.678333
+    ],
+    [
+      333.378556,
+      0.0
+    ],
+    [
+      517.592068,
+      13.3075
+    ]
+  ],
+  "marker": {
+    "hsv_low": [
+      75,
+      100,
+      120
+    ],
+    "hsv_high": [
+      115,
+      255,
+      255
+    ],
+    "roi_xyxy_px": [
+      0,
+      170,
+      640,
+      450
+    ],
+    "min_area_px": 80,
+    "max_area_px": 4000,
+    "min_aspect": 0.45,
+    "max_aspect": 2.2,
+    "anchor_extrapolation_px": 65
+  },
+  "lidar": {
+    "roi_x_m": [
+      -0.25,
+      0.25
+    ],
+    "roi_y_m": [
+      0.4,
+      0.8
+    ],
+    "min_quality": 1,
+    "cluster_gap_m": 0.045,
+    "cluster_angle_gap_deg": 2.5,
+    "min_cluster_points": 3,
+    "max_cluster_width_m": 0.1,
+    "bearing_gate_deg": 3.5
+  },
+  "tracking": {
+    "freshness_s": 0.5,
+    "max_pair_delta_s": 0.25,
+    "confirmation_scans": 2,
+    "reacquire_after_s": 0.7,
+    "max_speed_m_s": 0.4,
+    "jump_allowance_m": 0.035,
+    "smoothing_time_s": 0.12,
+    "trail_s": 5.0
+  },
+  "reference": {
+    "figure_base_centre_distance_m": 0.6096,
+    "scan_window_height_m": 0.045,
+    "calibration": "Three static blue-marker captures at approximately the same forward distance. Local bearing association, not full camera calibration.",
+    "range_note": "Report observed LiDAR surfaces. Do not subtract a bias to force a match to the base-centre measurement.",
+    "roi_note": "Configured tracking area, not surveyed table edges or a clearance map."
+  },
+  "robot": {
+    "lane_width": 0.48,
+    "narrow_width": 0.16,
+    "lane_ymin": 0.4,
+    "lane_ymax": 0.8,
+    "robot_radius": 0.022,
+    "figure_radius": 0.045,
+    "margin": 0.005,
+    "speed": 0.028,
+    "yield_s": 1.0,
+    "grid_m": 0.01,
+    "start": [
+      0,
+      0.435
+    ],
+    "goal": [
+      0,
+      0.765
+    ]
+  }
+}

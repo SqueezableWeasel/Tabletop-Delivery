@@ -1,0 +1,29 @@
+# Generated build output and downloaded dependencies
+/build*/
+/native_runtime/
+/third_party/
+/models/*.tflite
+
+# Run data, local preferences, and diagnostics
+/delivery_runs/
+*.boundary.json
+*.log
+*.part
+/coral_debug_*.txt
+/native_live_debug.txt
+
+# Compiler and editor output
+*.o
+*.obj
+*.a
+*.lib
+*.exp
+*.exe
+*.dll
+*.so
+*.so.*
+*.pdb
+/.vs/
+/.vscode/
+.DS_Store
+Thumbs.db
