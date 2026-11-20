@@ -6,7 +6,7 @@
 
 The camera connects to the Pi over CSI. The C1 LiDAR uses a CP2102N USB-to-UART adapter, and Coral uses a separate USB connection. Secure both sensors to the same plate. Stable power, strain-relieved cables, and an unobstructed scanning sector make the short demo repeatable.
 
-The reference setup uses a 2 × 3 ft table, a 10 cm figure, and a measured scanning-window height of 45 mm. The base-center distance is two feet from the LiDAR center. The figure's body must intersect the horizontal scan. Keep the plate fixed and move only the figure.
+The reference setup uses a 2 × 3 ft table, a 10 cm figure, a **camera lens-center height of 28 mm**, and a measured LiDAR scanning-window height of 45 mm above the table. For calibration, place the figure's center **16 inches (40.64 cm) forward of the camera**, measured horizontally from the point directly below the lens along the tabletop. The figure's body must intersect the horizontal scan. Keep the plate fixed and move only the figure. The [calibration workflow](CALIBRATION.md) measures new camera/LiDAR anchor pairs at this row; camera height and horizontal reference are separate from the LiDAR's observed surface distance.
 
 Before launching, check camera and serial enumeration:
 
@@ -19,7 +19,7 @@ Select `--camera-index N` or `--port PATH` if required. The LiDAR baud rate is f
 
 ## What the display means
 
-The left panel shows the camera frame chosen for the displayed scan, its marker box, or the threshold mask. The right panel shows raw scan context, configured tracking/lane rectangles, selected figure position, trail, route, depot, and goal. The amber circle is the combined figure/robot clearance radius.
+The left panel shows the camera frame chosen for the displayed scan, its marker box, or the threshold mask. The right panel shows raw scan context, configured tracking/lane rectangles, selected figure position, trail, route, depot, and goal. The amber circle is the selected total exclusion radius for the robot center, adjustable from 3 to 10 cm.
 
 Camera and scan ages are host receive ages. The pair difference is their receive-time offset. Neither value proves synchronized exposure/scanning. The inference duration measures interpreter invocation and is not complete camera-to-decision latency.
 

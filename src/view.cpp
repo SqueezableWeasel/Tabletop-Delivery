@@ -68,11 +68,9 @@ void state_file(const std::filesystem::path &path, const Frame &frame, const Sca
     f << "]" << "}"; // Close the detection sequence and enclosing Coral object.
 }
 } // namespace
-BoundaryUi::BoundaryUi(const Config &c) // Use integer millimeters in the UI to keep 0.1 cm adjustments exact. The minimum excludes negative clearance; the maximum accommodates configured radii.
-    : minimum_mm(int(std::ceil((c.figure_radius + c.robot_radius) * 1000 - 1e-9))), // Round the combined body radii upward so the integer-mm slider cannot request negative clearance.
-      maximum_mm(std::max({200, minimum_mm + 1, // Support at least 200 mm and always include the configured radius with a nonzero slider range.
-                           int(std::ceil((c.figure_radius + c.robot_radius + c.margin) * 1000))})),
-      current_mm(int(std::lround((c.figure_radius + c.robot_radius + c.margin) * 1000))), // Round the configured total radius to the nearest millimeter for display/control state.
+BoundaryUi::BoundaryUi(const Config &c) // Use integer millimeters so all controls enforce an exact 3–10 cm range with 0.1 cm steps.
+    : minimum_mm(BOUNDARY_MIN_MM), maximum_mm(BOUNDARY_MAX_MM), // Share fixed inclusive bounds with configuration validation and the collision engine.
+      current_mm(std::clamp(int(std::lround(exclusion_radius(c) * 1000)), minimum_mm, maximum_mm)), // Initialize the thumb from the validated effective radius in integer millimeters.
       requested_mm(current_mm.load()) {} // Begin with no pending geometry change: requested and applied values agree.
 void BoundaryUi::adjust(int delta) { // Clamp an atomic adjustment so keyboard/mouse callbacks only request a value. The main loop owns the actual engine and configuration mutation.
     int before = requested_mm.load(); // Read the requested radius before attempting an atomic bounded increment/decrement.
@@ -255,9 +253,9 @@ cv::Mat render(const Config &c, const Inputs &inputs, const Frame &frame, const 
          18, 702, .43);
     BoundaryUi fallback(c); // Provide display limits even when no interactive widget instance was supplied.
     const auto &ui = boundary ? *boundary : fallback; // Prefer the active widget state; headless callers can render using the configuration-derived fallback.
-    const double radius = c.figure_radius + c.robot_radius + c.margin; // Calculate total exclusion radius from both body radii plus live extra clearance.
+    const double radius = exclusion_radius(c); // Show the selected total exclusion radius used by the collision checker.
     text(image, "FIGURE BOUNDARY", 18, 741, .48, amber);
-    text(image, "Radius includes figure + robot", 18, 770, .34, muted);
+    text(image, "Exclusion radius for robot center", 18, 770, .34, muted); // Describe the selected total distance without implying an additional footprint inflation.
     auto button = [&](const cv::Rect &rect, const char *label, int inset) { // Draw a control's filled background, outline, and label consistently with its hit box.
         cv::rectangle(image, rect, cv::Scalar(43, 49, 54), cv::FILLED); // Fill the button face using the control background color.
         cv::rectangle(image, rect, muted, 1); // Outline the clickable button boundary in a contrasting muted color.

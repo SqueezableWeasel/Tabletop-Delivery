@@ -7,6 +7,7 @@
  */
 
 #include "app.h"
+#include "calibration.h" // Native stationary capture derives new anchors at the camera-referenced 16-inch row.
 #include <opencv2/highgui.hpp>
 #include <csignal> // Signal-safe termination flag and registration of interrupt/termination handlers.
 #include <iostream> // Console progress, usage information, and actionable error reporting.
@@ -19,6 +20,9 @@ void signal_handler(int) { // The signal handler only assigns a sig_atomic_t fla
 }
 struct Options { // CLI values are independent of neighboring folders. Relative paths resolve against the launch directory; run from the repository root by default.
     bool demo = false, headless = false, auto_start = false, no_coral = false, check_coral = false; // Default to live, windowed operation with required Coral and manual robot start.
+    bool calibrate = false; // Select live calibration without starting a delivery or opening the Coral runtime.
+    bool config_explicit = false; // Distinguish a deliberate --config choice from default automatic calibration selection.
+    std::string calibration_output = "calibration_16in.json"; // Default measured-calibration output; repeat saves replace it after validation and retain backups.
     double seconds = 0; // Zero means no time limit in windowed mode; headless mode requires a positive duration.
     int camera = 0; // Select the first enumerated camera unless the user provides another index.
     std::string config = "delivery_config.json", tracking, port,
@@ -28,9 +32,11 @@ struct Options { // CLI values are independent of neighboring folders. Relative 
 void help() { // Describe the live, simulated, and diagnostic entry points without starting devices.
     std::cout
         << "Tabletop Delivery\n"
-           "  ./build/tabletop_delivery                   live camera + C1 + Coral USB\n"
+           "  ./build/tabletop_delivery                   live run using the saved active calibration\n"
            "  ./build/tabletop_delivery --check-coral     real native TPU warmup, then exit\n"
            "  ./build/tabletop_delivery --demo            synthetic sensors, Coral OFF\n"
+           "  ./build/tabletop_delivery --calibrate       capture three poses, automatically save and activate\n"
+           "  --calibration-output FILE                  saved calibration file (default calibration_16in.json)\n"
            "  --headless --seconds N                     bounded run, save final snapshot\n"
            "  --auto-start                               start robot without pressing Space\n"
            "  --no-coral                                 explicitly disable semantic hold\n"
@@ -59,6 +65,10 @@ Options parse(int argc, char **argv) { // Parse options and reject unsafe/contra
             o.no_coral = true; // Disable the Coral requirement for this run only.
         else if (a == "--check-coral") // Select a real model/delegate warm-up diagnostic that exits before sensor startup.
             o.check_coral = true; // Remember the diagnostic-only mode for validation and startup dispatch.
+        else if (a == "--calibrate") // Select live measured calibration independently of existing camera-bearing association.
+            o.calibrate = true; // Dispatch to the dedicated stationary-capture UI after loading user settings.
+        else if (a == "--calibration-output") // Allow a new destination when retaining multiple measured calibrations.
+            o.calibration_output = value(); // Keep capture output separate from the chosen input configuration.
         else if (a == "--seconds") { // Parse an optional duration in floating-point seconds.
             auto v = value(); // Consume the numeric text before checking complete conversion.
             std::size_t n = 0; // The numeric parser reports how many characters it actually consumed.
@@ -71,9 +81,10 @@ Options parse(int argc, char **argv) { // Parse options and reject unsafe/contra
             o.camera = std::stoi(v, &n); // Convert camera index text, recording where conversion ended.
             if (n != v.size()) // Reject values such as 10abc instead of silently accepting a numeric prefix.
                 throw std::runtime_error("Invalid camera index");
-        } else if (a == "--config") // Choose the main configuration file explicitly.
+        } else if (a == "--config") { // An explicit main configuration bypasses automatic saved-calibration selection.
             o.config = value(); // Store the selected main configuration path for startup loading and boundary sidecar naming.
-        else if (a == "--tracking-config") // Allow an explicitly selected tracking calibration overlay.
+            o.config_explicit = true; // Preserve the user's deliberate choice even when a saved active calibration is available.
+        } else if (a == "--tracking-config") // Allow an explicitly selected tracking calibration overlay.
             o.tracking = value(); // Store the optional tracking-only overlay path without searching neighboring directories.
         else if (a == "--port") // Override automatic LiDAR serial-device selection.
             o.port = value(); // Pass the chosen serial path through to the native sensor backend.
@@ -92,6 +103,8 @@ Options parse(int argc, char **argv) { // Parse options and reject unsafe/contra
         throw std::runtime_error("--headless requires --seconds N");
     if (o.check_coral && (o.demo || o.no_coral)) // Prevent contradictory requests to check real Coral while simultaneously disabling it.
         throw std::runtime_error("--check-coral requires real Coral, not --demo/--no-coral");
+    if (o.calibrate && (o.demo || o.headless || o.auto_start || o.check_coral || o.seconds > 0)) // Calibration requires manual physical placement and a visible live-sensor selection window.
+        throw std::runtime_error("--calibrate requires live interactive capture without demo, auto-start, or a time limit");
     return o; // Return validated command-line options to startup.
 }
 } // namespace
@@ -114,7 +127,8 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
             std::cout << "PASS: USB delegate attached and model invoked in C++.\n"; // Report application progress or state to the launching terminal; output does not drive decisions.
             return 0;
         }
-        Config c = load_config(o.config); // Configuration order: chosen config, optional explicit tracking overlay, then its boundary sidecar. An invalid sidecar is reported and leaves Config unchanged. Load and validate the main experiment before applying optional explicit settings.
+        o.config = startup_config_path(o.config, o.config_explicit).string(); // Prefer the active saved calibration unless the caller explicitly chose a configuration.
+        Config c = load_config(o.config); // Load the resolved configuration, then apply any explicit tracking overlay and its matching boundary preference.
         std::cout << "Configuration: " << std::filesystem::absolute(o.config) << '\n'; // Report application progress or state to the launching terminal; output does not drive decisions.
         if (!o.tracking.empty()) { // Overlay tracking only when the user selected a calibration file.
             overlay_tracking(c, o.tracking); // Apply camera/LiDAR/tracking fields while preserving the selected robot geometry.
@@ -127,11 +141,15 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
         } catch (const std::exception &e) {
             std::cerr << "Saved boundary ignored: " << e.what() << '\n'; // Report a malformed optional sidecar while continuing with the validated main settings.
         }
+        if (o.calibrate) // Capture measured 16-inch-row anchors before creating an inference service or any delivery engine.
+            return run_calibration(c, o.port, o.camera, o.calibration_output, o.output, quit_requested); // Preserve the loaded boundary preference and save a separate calibrated configuration.
         BoundaryUi boundary(c); // Initialize slider limits and requested/applied values from the resolved radius.
         if (boundary_saved) // Show persisted status only when a valid saved boundary was actually loaded.
             boundary.notice = "Saved"; // Indicate that the applied radius agrees with the persisted boundary setting.
-        std::cout << "Figure boundary: " << (c.figure_radius + c.robot_radius + c.margin) * 100
+        std::cout << "Figure boundary: " << exclusion_radius(c) * 100
                   << " cm radius\n"; // Report application progress or state to the launching terminal; output does not drive decisions.
+        std::cout << "Robot speed: " << c.speed * c.speed_scale * 100 << " cm/s ("
+                  << c.speed_scale * 100 << "% pace)\n"; // Show the actual travel rate after resolving the selected calibration's nominal speed and pacing fraction.
         std::unique_ptr<void, decltype(&core_destroy)> core(core_create(&c), core_destroy); // Ownership: the engine, inference worker, sensor stack, and window all have RAII cleanup. Constructor exceptions also unwind resources already acquired. Own the opaque core handle with its required custom destructor for exception-safe cleanup.
         if (!core) // Stop startup if the engine rejected configuration or could not allocate its state.
             throw std::runtime_error("Native engine creation failed");
@@ -181,10 +199,10 @@ int main(int argc, char **argv) { // Program entry point; one outer exception bo
             if (const int requested = boundary.requested_mm.load();
                 requested != boundary.current_mm.load()) { // Apply only a changed requested millimeter value, on the same thread that steps the engine.
                 const double radius = requested / 1000.; // Convert the integer slider value from millimeters to the engine's meters.
-                if (std::abs(radius - (c.figure_radius + c.robot_radius + c.margin)) > 1e-12) { // Ignore rounding-equivalent radius values rather than invalidating a valid route unnecessarily.
+                if (std::abs(radius - exclusion_radius(c)) > 1e-12) { // Ignore rounding-equivalent radius values rather than invalidating a valid route unnecessarily.
                     if (core_set_boundary(core.get(), radius)) // Validate and apply geometry before this iteration's robot movement.
                         throw std::runtime_error("Invalid figure boundary requested");
-                    c.margin = std::max(0., radius - c.figure_radius - c.robot_radius); // Keep the main configuration's nonnegative margin consistent with the engine's total radius.
+                    c.boundary_radius = radius; // Keep display and persistence synchronized with the exact total radius accepted by the engine.
                     boundary.notice = "Unsaved"; // Mark a live radius edit as pending persistence until the user requests Save/B.
                     last_display = -1; // Force prompt rendering of changed radius or persistence feedback.
                     std::cout << "Figure boundary changed to " << radius * 100 << " cm radius\n"; // Report application progress or state to the launching terminal; output does not drive decisions.

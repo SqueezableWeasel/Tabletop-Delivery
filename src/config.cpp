@@ -97,6 +97,8 @@ void validate_config(const Config &c) { // Check cross-field relationships: orde
         if (bad) // Convert a failed invariant into a descriptive startup error.
             throw std::runtime_error(std::string("Invalid configuration: ") + why);
     };
+    fail(!valid_boundary_radius(exclusion_radius(c)), "figure boundary radius must be between 3 and 10 cm"); // Enforce the same inclusive total-radius limits as live controls and the core API.
+    fail(!(c.speed_scale > 0 && c.speed_scale <= 1), "robot speed_scale must be greater than 0 and at most 1"); // Reject nonfinite pacing and unsupported fractions before constructing the engine.
     fail(c.min_area < 1 || c.max_area < c.min_area || c.max_area > 640 * 480, "marker areas"); // Require positive ordered component areas bounded by the total image pixel count.
     fail(c.min_aspect <= 0 || c.max_aspect < c.min_aspect || c.extrapolation < 0, "marker shape"); // Require ordered positive marker aspect limits and nonnegative extrapolation allowance.
     fail(c.angle_gap <= 0 || c.max_width <= 0 || c.bearing_gate <= 0 || c.bearing_gate > 45,
@@ -139,7 +141,11 @@ Config load_config(const std::filesystem::path &path) { // Start with a fully in
     READ(robot_radius); // Circular virtual robot footprint radius used for collision checking, in meters.
     READ(figure_radius); // Assumed figure footprint radius used by this tabletop model, in meters.
     READ(margin); // Additional nonnegative clearance beyond both body radii, in meters.
-    READ(speed); // Virtual robot travel speed, in meters per second.
+    if (!r["boundary_radius"].empty()) // The optional total-radius selection overrides the nominal figure + robot + margin sum.
+        READ(boundary_radius); // Read through the same finite numeric validation used by all other geometry settings.
+    READ(speed); // Nominal virtual robot travel speed before applying the independent pacing fraction, in meters per second.
+    if (!r["speed_scale"].empty()) // Omitted pacing uses Config's 80% default, including automatically selected saved calibrations.
+        READ(speed_scale); // Read a finite fraction; core validation requires a value greater than zero and at most one.
     READ(yield_s); // Wait before attempting a detour around a persistent obstruction, in seconds.
     READ(grid_m); // A* search-grid spacing, in meters; continuous edge checks still guard movement.
 #undef READ // Restrict the helper macro's lifetime to this serialization block.
@@ -166,24 +172,27 @@ bool load_boundary_setting(Config &c, const std::filesystem::path &path) { // A 
         throw std::runtime_error("Cannot read saved figure boundary");
     if (integer(f.root(), "schema_version") != 1) // Require the saved boundary's own supported schema before reading its radius.
         throw std::runtime_error("Unsupported boundary settings version");
-    const double radius = number(f.root(), "radius_m"), minimum = c.figure_radius + c.robot_radius; // Read total saved exclusion radius and calculate the minimum allowed by both body radii.
-    if (radius < minimum - 1e-12 || radius > 2.) // Reject negative clearance and unreasonable saved radii before changing the active configuration.
-        throw std::runtime_error("Saved boundary is outside valid limits");
+    const double radius = number(f.root(), "radius_m"); // Read the selected total exclusion radius in meters.
+    if (!valid_boundary_radius(radius)) // A saved preference cannot bypass the live control's inclusive 3–10 cm limits.
+        throw std::runtime_error("Saved boundary radius must be between 3 and 10 cm");
     Config updated = c; // Validate changes on a copy so malformed sidecars cannot partially mutate active settings.
-    updated.margin = std::max(0., radius - minimum); // Convert total saved radius into nonnegative extra clearance beyond both footprints.
+    updated.boundary_radius = radius; // Restore the total radius directly while retaining nominal body sizes, margin, and calibration.
     validate_config(updated); // Check the proposed copy using the same invariants as ordinary configuration loading.
     c = updated; // Commit only after the complete modified configuration has passed validation.
     return true;
 }
-void save_boundary_setting(const Config &c, const std::filesystem::path &path) { // Persist only schema ID and combined radius. Calibration stays in the main config; loading converts the combined radius back to an extra margin.
+void save_boundary_setting(const Config &c, const std::filesystem::path &path) { // Persist only schema ID and selected total radius; calibration and nominal body sizes stay in the main config.
     validate_config(c); // Verify all cross-field and core invariants before these settings are used or persisted.
     cv::FileStorage f(path.string(), cv::FileStorage::WRITE | cv::FileStorage::FORMAT_JSON); // Open a JSON writer for the selected output path.
     if (!f.isOpened()) // Detect file-open failure before attempting to read or write any fields.
         throw std::runtime_error("Cannot save figure boundary: " + path.string());
-    f << "schema_version" << 1 << "radius_m" << (c.figure_radius + c.robot_radius + c.margin); // Serialize the boundary sidecar's schema and combined radius in meters.
+    f << "schema_version" << 1 << "radius_m" << exclusion_radius(c); // Serialize the exact radius used by the display and collision checker.
     f.release(); // Close and flush the structured writer before reporting that the boundary was saved.
 }
-void save_config(const Config &c, const std::filesystem::path &path) { // Write resolved runtime settings for reproducible session inspection. Reference notes in the input JSON are descriptive metadata and are not runtime parameters.
+void save_config(const Config &c, const std::filesystem::path &path, double calibration_camera_distance_m, double calibration_camera_height_m) { // Record optional camera placement geometry without changing measured LiDAR ranges or the robot's 2D coordinates.
+    if (!std::isfinite(calibration_camera_distance_m) || calibration_camera_distance_m < 0 ||
+        !std::isfinite(calibration_camera_height_m) || calibration_camera_height_m < 0) // Reject invalid provenance before creating an output file.
+        throw std::runtime_error("Invalid camera calibration distance or height");
     cv::FileStorage f(path.string(), cv::FileStorage::WRITE | cv::FileStorage::FORMAT_JSON); // Open a JSON writer for the selected output path.
     if (!f.isOpened()) // Detect file-open failure before attempting to read or write any fields.
         throw std::runtime_error("Cannot write configuration");
@@ -214,11 +223,22 @@ void save_config(const Config &c, const std::filesystem::path &path) { // Write 
     WRITE(robot_radius); // Circular virtual robot footprint radius used for collision checking, in meters.
     WRITE(figure_radius); // Assumed figure footprint radius used by this tabletop model, in meters.
     WRITE(margin); // Additional nonnegative clearance beyond both body radii, in meters.
-    WRITE(speed); // Virtual robot travel speed, in meters per second.
+    WRITE(boundary_radius); // Preserve an explicit radius selection when saving the complete effective configuration.
+    WRITE(speed); // Save nominal speed without multiplying it, so repeated saves preserve the same actual travel rate.
+    WRITE(speed_scale); // Store pacing separately for reproducible calibration and session-configuration roundtrips.
     WRITE(yield_s); // Wait before attempting a detour around a persistent obstruction, in seconds.
     WRITE(grid_m); // A* search-grid spacing, in meters; continuous edge checks still guard movement.
 #undef WRITE // End the local write helper's scope before serializing coordinate arrays.
     f << "start" << "[" << c.start.x << c.start.y << "]" << "goal" << "[" << c.goal.x << c.goal.y
       << "]" << "}"; // Finish the robot section with exact depot and delivery [x,y] coordinates.
+    if (calibration_camera_distance_m > 0) { // Include physical-placement provenance only when saving a newly captured calibration.
+        f << "reference" << "{" << "camera_to_figure_center_m" << calibration_camera_distance_m
+          << "distance_origin" << "Camera lens; horizontal forward distance to the figure center on the tabletop"
+          << "calibration" << "Measured stationary center, left, and right camera/LiDAR pairs on the reference row"
+          << "range_note" << "Observed LiDAR surfaces retain their measured ranges from the LiDAR origin";
+        if (calibration_camera_height_m > 0) // Zero means the optional lens-center height was not supplied by the caller.
+            f << "camera_center_height_m" << calibration_camera_height_m; // Store the measured height independently of the horizontal placement distance.
+        f << "}"; // Close the reference object after all supplied setup measurements are recorded.
+    }
 }
 } // namespace tabletop

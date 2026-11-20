@@ -25,4 +25,36 @@ execute_process( # An explicit missing path must fail, rather than silently sele
 if(status EQUAL 0 OR NOT errors MATCHES "Cannot open config") # Missing explicit configuration must fail with the expected actionable file-open error.
   message(FATAL_ERROR "Missing explicit config was not rejected: ${status}\n${output}\n${errors}") # Mark this CTest invocation failed with captured startup diagnostics or the violated contract.
 endif()
-message(STATUS "Local resources, diagnostic snapshot, and missing-path rejection passed") # Report completion only after local-resource startup, snapshot creation, and rejection checks pass.
+file(MAKE_DIRECTORY "${RUN_ROOT}/selection") # Isolate automatic selection fixtures from the first-run fallback checks above.
+configure_file("${CONFIG}" "${RUN_ROOT}/selection/delivery_config.json" COPYONLY) # Keep a valid seed available while testing preference order.
+configure_file("${CONFIG}" "${RUN_ROOT}/selection/calibration_16in.json" COPYONLY) # Supply a valid saved default calibration with no activation record in this directory.
+file(WRITE "${RUN_ROOT}/selection/active_calibration.json" "{\"schema_version\":1,\"config_path\":\"custom profile.json\"}") # Select a custom calibration using a relative filename containing a space.
+file(READ "${CONFIG}" saved_profile) # Start from the valid fixture before modeling a saved calibration without explicit pacing.
+string(REGEX REPLACE "\"speed_scale\"[ \t\r\n]*:[ \t\r\n]*[0-9.]+[ \t\r\n]*," "" saved_profile "${saved_profile}") # Omit the optional member so actual executable startup must apply default pacing.
+file(WRITE "${RUN_ROOT}/selection/custom profile.json" "${saved_profile}") # Keep the selected calibration's geometry and nominal speed unchanged.
+execute_process(
+  COMMAND "${APP}" --demo --headless --seconds 0.1 --output auto-runs # Omit --config to exercise the actual executable's automatic selection.
+  WORKING_DIRECTORY "${RUN_ROOT}/selection"
+  RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE errors TIMEOUT 20)
+if(NOT status EQUAL 0 OR NOT output MATCHES "Configuration:.*custom profile.json") # The saved active record must take precedence over both default-name files.
+  message(FATAL_ERROR "Automatic calibration selection failed: ${status}\n${output}\n${errors}")
+endif()
+if(NOT output MATCHES "Robot speed: 2[.]24 cm/s [(]80% pace[)]") # Loading an active calibration without a pacing field must use the slower default automatically.
+  message(FATAL_ERROR "Saved calibration did not receive default pacing: ${output}")
+endif()
+execute_process(
+  COMMAND "${APP}" --demo --headless --seconds 0.1 --config delivery_config.json --output explicit-runs # An explicit seed request must bypass the active calibration.
+  WORKING_DIRECTORY "${RUN_ROOT}/selection"
+  RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE errors TIMEOUT 20)
+if(NOT status EQUAL 0 OR NOT output MATCHES "Configuration:.*delivery_config.json") # Confirm CLI parsing preserves the distinction between explicit and default paths.
+  message(FATAL_ERROR "Explicit configuration did not override calibration: ${status}\n${output}\n${errors}")
+endif()
+file(WRITE "${RUN_ROOT}/selection/active_calibration.json" "{\"schema_version\":1,\"config_path\":\"absent.json\"}") # Point the preference at a missing calibration to test failure behavior.
+execute_process(
+  COMMAND "${APP}" --demo --headless --seconds 0.1 --output invalid-runs # A normal launch must report missing active data instead of silently switching alignment.
+  WORKING_DIRECTORY "${RUN_ROOT}/selection"
+  RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE errors TIMEOUT 20)
+if(status EQUAL 0 OR NOT errors MATCHES "Cannot open config") # Invalid active preferences must stop before opening devices or running with seed geometry.
+  message(FATAL_ERROR "Missing active calibration was not rejected: ${status}\n${output}\n${errors}")
+endif()
+message(STATUS "Local resources, saved calibration selection, explicit override, and missing-path rejection passed") # Report success only after actual executable startup verifies the preference rules.

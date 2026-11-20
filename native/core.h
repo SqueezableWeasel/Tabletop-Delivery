@@ -41,9 +41,19 @@ struct Config { // Experiment parameters. Arrays: anchors = three (pixel u, bear
     double fresh, pair_gap, reacquire, max_speed, jump, smoothing, trail_s; // Freshness/pair/reacquisition times (s), max motion (m/s), jump allowance (m), filter/trail times (s).
     int hsv_low[3], hsv_high[3], roi[4], min_area, max_area, min_points, confirmation, min_quality; // HSV limits, exclusive-upper-bound pixel ROI, component areas, cluster/confirmation counts, quality floor.
     double lane_width, narrow_width, lane_ymin, lane_ymax; // Wide/narrow lane widths and near/far lane bounds, all in meters.
-    double robot_radius, figure_radius, margin, speed, yield_s, grid_m; // Body radii and margin (m), robot speed (m/s), yield duration (s), and grid spacing (m).
+    double robot_radius, figure_radius, margin, speed, yield_s, grid_m; // Body radii and margin (m), nominal robot speed (m/s), yield duration (s), and grid spacing (m).
     XY start, goal; // Depot and delivery coordinates in the same metric frame as the tracked figure.
+    double boundary_radius = 0; // Explicit robot-center exclusion radius in meters; zero uses the nominal figure + robot + margin sum.
+    double speed_scale = .8; // Fraction of nominal robot speed, in (0,1]; applies to saved calibrations that omit this optional setting.
 };
+
+inline constexpr int BOUNDARY_MIN_MM = 30, BOUNDARY_MAX_MM = 100; // Shared inclusive 3–10 cm limits for UI requests, configuration, and collision geometry.
+inline double exclusion_radius(const Config &c) { // Resolve the selected total radius without subtracting footprints or allowing a negative clearance margin.
+    return c.boundary_radius == 0 ? c.figure_radius + c.robot_radius + c.margin : c.boundary_radius; // A live or saved selection overrides the nominal starting geometry.
+}
+inline bool valid_boundary_radius(double radius) { // Ordered comparisons reject NaN and infinity as well as values outside the supported range.
+    return radius >= BOUNDARY_MIN_MM / 1000. && radius <= BOUNDARY_MAX_MM / 1000.; // Use meters internally and include both exact endpoints.
+}
 enum TrackStatus { // Perception result for the current observation. Only TRACKING permits motion.
     WAITING, // No usable perception observation has established a tracking state yet.
     TRACKING, // Unique, fresh camera/LiDAR association has passed confirmation and motion checks.
@@ -90,7 +100,7 @@ struct Result { // Bounded output snapshot: counts delimit arrays; selected=-1 m
     XY robot, goal, path[128]; // Current robot, delivery goal, and remaining waypoint prefix in meters.
     double heading, lane_width, obstacle_radius; // Robot heading from forward (radians), full lane width (m), and total exclusion radius (m).
 };
-API int core_abi(); // Return the fixed-layout interface version, currently 1.
+API int core_abi(); // Return fixed-layout interface version 2, which includes the explicit boundary radius in Config.
 API int core_size(int which); // Return sizeof(Config/Result/Control/RawPoint) for selectors 0/1/2/3; other selectors return zero.
 API void *core_create(const Config *config); // Allocate one engine; return null for invalid settings or construction failure.
 API void core_destroy(void *core); // Destroy an engine created by core_create; passing null is harmless.

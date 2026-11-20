@@ -55,12 +55,14 @@ bool valid_config(const Config &c) { // Minimal engine invariants, also used by 
            c.min_points >= 2 && c.cluster_gap > 0 && c.anchors[0] < c.anchors[2] &&
            c.anchors[2] < c.anchors[4] && c.roi[0] >= 0 && c.roi[1] >= 0 && c.roi[2] <= 640 &&
            c.roi[3] <= 480 && c.roi[0] < c.roi[2] && c.roi[1] < c.roi[3] && c.robot_radius > 0 &&
-           c.figure_radius > 0 && c.margin >= 0 && c.grid_m >= .005 && c.grid_m <= .04 &&
-           c.speed > 0 && c.speed <= .2 && c.lane_width > 2 * c.robot_radius &&
+           c.figure_radius > 0 && c.margin >= 0 && std::isfinite(c.figure_radius + c.robot_radius + c.margin) &&
+           valid_boundary_radius(exclusion_radius(c)) && c.grid_m >= .005 && c.grid_m <= .04 &&
+           c.speed > 0 && c.speed <= .2 && c.speed_scale > 0 && c.speed_scale <= 1 &&
+           c.lane_width > 2 * c.robot_radius &&
            c.narrow_width > 2 * c.robot_radius && c.lane_ymax - c.lane_ymin > 2 * c.robot_radius; // Reject invalid geometry, timing, calibration order, and unsupported planner resolution.
 }
 
-struct Space { // Configuration space for the robot center: inset lane walls by robot radius and inflate each observed figure position by figure + robot + margin.
+struct Space { // Configuration space for the robot center: inset lane walls by robot radius and exclude the selected radius around each observed figure position.
     double lo, hi, bottom, top, radius; // Robot-center limits and inflated obstacle radius, all in meters.
     std::vector<XY> obstacles; // Obstacle centers; raw and smoothed figure positions can both be present.
     Space(const Config &c, bool narrow, std::vector<XY> obs) : obstacles(std::move(obs)) { // Move the obstacle list into this collision-checking configuration space.
@@ -69,7 +71,7 @@ struct Space { // Configuration space for the robot center: inset lane walls by 
         hi = width / 2 - c.robot_radius; // Right wall inset by the same footprint radius.
         bottom = c.lane_ymin + c.robot_radius; // Near lane boundary inset so the robot body stays inside the lane.
         top = c.lane_ymax - c.robot_radius; // Far lane boundary inset by the robot radius.
-        radius = c.robot_radius + c.figure_radius + c.margin; // Sum both body radii and clearance to test collisions using robot-center distances.
+        radius = exclusion_radius(c); // Use the same selected total radius as the display and saved preference; do not add another robot radius.
     }
     bool inside(XY p) const { // Test robot-center bounds with a small tolerance for floating-point rounding.
         return p.x >= lo - 1e-9 && p.x <= hi + 1e-9 && p.y >= bottom - 1e-9 && p.y <= top + 1e-9; // Require all four bounds; the 1e-9 meter allowance is numerical, not physical clearance.
@@ -300,7 +302,7 @@ std::vector<Group> groups(const RawPoint *points, int count, const Config &c) { 
 }
 
 struct Engine { // State persists between scans: pending confirmation, filtered position, trail, robot pose, route, yield timer, and semantic hold. No member is shared across threads.
-    Config c; // Per-engine copy of settings; live boundary edits update only its clearance margin.
+    Config c; // Per-engine copy of settings; live boundary edits update only its explicit exclusion radius.
     Result r{}; // Zero-initialized public snapshot, filled incrementally by tracking and robot decisions.
     std::deque<TrailPoint> trail; // Time-ordered position history supports efficient expiry from the front.
     bool have_position = false, have_pending = false, break_trail = true; // Track filter validity, acquisition-chain validity, and whether the trail must break.
@@ -472,7 +474,7 @@ struct Engine { // State persists between scans: pending confirmation, filtered 
         }
         r.coral_held = stop_latched ? 1 : 0; // Expose the persistent sign latch independently from the current inference health.
         r.lane_width = narrow ? c.narrow_width : c.lane_width; // Publish the selected full lane width for visualization and logging.
-        r.obstacle_radius = c.figure_radius + c.robot_radius + c.margin; // Publish the robot-center exclusion radius: figure body plus robot body plus margin.
+        r.obstacle_radius = exclusion_radius(c); // Publish the exact selected exclusion radius used by collision checking.
         r.narrow = narrow ? 1 : 0; // Convert lane selection to the integer flag used by the fixed-layout result.
         r.running = running ? 1 : 0; // Publish the user's run request even when safety gates temporarily hold movement.
         if (!running) { // A paused or unstarted robot cannot advance along its route.
@@ -546,7 +548,7 @@ struct Engine { // State persists between scans: pending confirmation, filtered 
             }
         }
         r.robot_status = (route.size() > 1 || r.reroutes > 0) ? DETOUR : DRIVING; // Label indirect travel, retaining the detour label after a reroute has occurred.
-        double remaining = c.speed * dt; // Consume at most speed times capped dt along the route. Recheck every actual movement against raw and filtered obstacles before changing the robot position. Convert speed in meters/second into this iteration's maximum travel budget.
+        double remaining = c.speed * c.speed_scale * dt; // Apply the pacing fraction once to this movement budget; keep stored speed unchanged so calibration saves cannot compound the slowdown. Collision checks still guard each segment.
         double desired_heading = r.heading; // Keep the existing heading unless actual motion establishes a new direction.
         bool moved = false; // Track whether display-heading interpolation should occur this iteration.
         while (remaining > 1e-9 && !route.empty()) { // Consume the travel budget across as many short waypoints as necessary.
@@ -589,7 +591,7 @@ struct Engine { // State persists between scans: pending confirmation, filtered 
 } // namespace
 
 int core_abi() { // Expose the fixed-layout interface identifier and structure sizes for native consumers that validate data contracts before calling the engine.
-    return 1;
+    return 3; // Config includes the boundary radius and speed scale, so native consumers must use the matching layout.
 }
 int core_size(int which) {
     switch (which) { // Select the requested public structure size for native contract checks.
@@ -615,18 +617,14 @@ void *core_create(const Config *c) { // Allocate one isolated engine; failure is
 void core_destroy(void *core) {
     delete static_cast<Engine *>(core); // Recover the opaque handle's concrete type and destroy its owned state; null is allowed.
 }
-int core_set_boundary(void *core, double radius) { // Update only the extra margin. Reject nonfinite/undersized radii without mutation; invalidate the route while preserving pose, tracking, and hold state.
-    if (!core || !std::isfinite(radius)) // Reject a missing engine or a radius containing NaN/infinity before mutation.
+int core_set_boundary(void *core, double radius) { // Select a total 3–10 cm exclusion radius; invalidate the route while preserving pose, tracking, and hold state.
+    if (!core || !valid_boundary_radius(radius)) // Reject missing engines and invalid radii before mutating any geometry or route state.
         return -1;
     auto &e = *static_cast<Engine *>(core); // Access the engine behind the opaque public handle on the calling thread.
-    const double minimum = e.c.figure_radius + e.c.robot_radius; // The exclusion radius cannot be smaller than the combined physical body radii.
-    if (radius < minimum - 1e-12) // Allow only tiny rounding error below the minimum, not negative clearance.
-        return -1;
-    const double margin = std::max(0., radius - minimum); // Derive nonnegative extra clearance from the requested total exclusion radius.
-    if (std::abs(margin - e.c.margin) < 1e-12) // Treat an effectively unchanged boundary as a no-op, preserving the current route.
+    if (std::abs(radius - exclusion_radius(e.c)) < 1e-12) // Treat an effectively unchanged boundary as a no-op, preserving the current route.
         return 0;
-    e.c.margin = margin; // Commit the new clearance margin after validation succeeds.
-    e.r.obstacle_radius = minimum + margin; // Update the reported total radius immediately for consistent UI feedback.
+    e.c.boundary_radius = radius; // Store the user's total exclusion radius independently of the nominal body sizes and margin.
+    e.r.obstacle_radius = radius; // Update the reported total radius immediately for consistent UI feedback.
     e.route.clear(); // Invalidate waypoints planned for the previous boundary geometry.
     e.r.path_count = 0; // Clear the public path prefix so stale geometry is not displayed.
     e.yield_start = -1; // Start a fresh yield interval if the new geometry blocks the next movement.

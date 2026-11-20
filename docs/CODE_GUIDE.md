@@ -22,13 +22,13 @@ The portable core does not include OpenCV or hardware headers. Its tests can bui
 
 `Options` holds mode flags, duration, camera index, and paths. `parse()` requires a value after each value-taking flag, rejects malformed numeric text, requires a positive duration in headless mode, and disallows a simulated or disabled-TPU `--check-coral` run. `--help` returns before any device is opened.
 
-Defaults name resources within the working directory. `--config`, `--model`, `--edgetpu-lib`, and `--output` select explicit alternatives. `--tracking-config` applies an explicitly supplied calibration overlay. Configuration discovery never depends on neighboring application folders.
+Defaults name resources within the working directory. `--config`, `--model`, `--edgetpu-lib`, and `--output` select explicit alternatives. `startup_config_path()` honors an explicit configuration; otherwise it reads `active_calibration.json`, falls back to an existing `calibration_16in.json`, then uses `delivery_config.json` on a first run. Relative active-file paths resolve against the preference directory. `--tracking-config` applies an explicitly supplied overlay. `--calibrate` opens live stationary capture at the 16-inch camera row and `--calibration-output` chooses its output. This mode rejects simulation, auto-start, headless operation, and time limits.
 
 ### Startup and ownership
 
 The program limits OpenCV's internal workers, installs SIGINT/SIGTERM handlers, and determines whether Coral is required. The signal handler only sets a `sig_atomic_t`; normal control flow performs cleanup.
 
-The Coral-only check constructs the inference service, performs warm-up, and exits. Normal startup loads/validates configuration, applies an optional tracking overlay, and attempts the matching boundary sidecar. Invalid saved preferences produce a warning without partially changing configuration.
+The Coral-only check constructs the inference service, performs warm-up, and exits. Normal startup loads/validates configuration, applies an optional tracking overlay, and attempts the matching boundary sidecar. Invalid saved preferences produce a warning without partially changing configuration. Calibration branches after these settings are loaded and before Coral or the delivery loop starts, so it preserves user preferences while opening only the capture services.
 
 The core handle uses a custom `unique_ptr` deleter. Sensor and inference services use RAII objects, and a window guard closes the GUI on exceptions. Initialization failures therefore unwind resources acquired earlier in that startup sequence.
 
@@ -157,7 +157,7 @@ Accepted observations update the filtered position using `alpha = 1 - exp(-dt / 
 
 ## 7. Collision geometry and route planning — `native/core.cpp`
 
-`Space` expresses allowable robot-center positions. Lane walls are inset by the robot radius. Each raw/filtered figure position is an obstacle inflated by figure radius + robot radius + extra margin.
+`Space` expresses allowable robot-center positions. Lane walls are inset by the robot radius. Each raw/filtered figure position is surrounded by the selected total exclusion radius returned by `exclusion_radius()`. A zero `boundary_radius` uses the nominal figure + robot + margin sum; a nonzero value overrides that sum. `BOUNDARY_MIN_MM` and `BOUNDARY_MAX_MM` define the shared inclusive 3–10 cm limits. Both the core API and application configuration reject effective radii outside this range.
 
 `segment_distance()` projects an obstacle center onto a finite segment and clamps the projection to its endpoints. `Space::clear()` uses this distance to check the full swept path, not just sampled endpoints. Touching the modeled boundary is rejected. Because the lane rectangle is convex, in-lane endpoints also keep the straight segment within the lane.
 
@@ -175,9 +175,9 @@ The decision order is significant:
 4. Require 0.25 s of healthy settling after a recovery.
 5. Hold if the robot overlaps either raw or filtered exclusion circle; latch delivery within 2 mm of the destination.
 6. Preserve a valid route. Otherwise clear it, prefer a direct segment, yield, then plan a detour or report blocked.
-7. Move by at most speed × capped elapsed time, checking each proposed segment before applying it.
+7. Move by at most `speed × speed_scale × capped elapsed time`, checking each proposed segment before applying it. The default pacing fraction is 0.8, giving 2.24 cm/s at a nominal 2.8 cm/s. Pacing only changes the movement budget; sensor acquisition and decision timing remain independent. Configuration saves retain both values separately to preserve the same pace across calibration and restarts.
 
-Heading turns at no more than 3 rad/s. The footprint is circular, so display orientation can smooth independently of positional collision checks. `core_set_boundary()` changes only margin, clears the route/path count/yield timer, and preserves pause, pose, perception, and the semantic latch.
+Heading turns at no more than 3 rad/s. The footprint is circular, so display orientation can smooth independently of positional collision checks. `core_set_boundary()` changes only the explicit total `boundary_radius`, clears the route/path count/yield timer, and preserves pause, pose, perception, and the semantic latch. Values outside 3–10 cm fail without changing state. The display and collision checker use this same selected total without adding another robot radius.
 
 ## 9. Coral runtime and inference
 
@@ -221,7 +221,7 @@ Drawing helpers map meters to screen coordinates with Y forward/up. Fixed-point 
 
 Detector boxes are not painted over an unrelated newer image; the display reports inference age instead. Other LiDAR returns remain context rather than planner obstacles. Rendering only consumes state.
 
-`BoundaryUi` stores integer millimeters, using atomics for requested/current values and save/drag flags. Button clicks and key events request changes; the main thread applies them. Slider limits prevent negative extra clearance. The notice string is owned by the application/render thread.
+`BoundaryUi` stores integer millimeters, using atomics for requested/current values and save/drag flags. Button clicks and key events request changes; the main thread applies them. Slider limits enforce the inclusive 3–10 cm selected total radius. The notice string is owned by the application/render thread.
 
 `SessionLog` creates a unique UTC-named directory and writes startup configuration and mode metadata. CSV uses empty fields for invalid positions. Snapshots contain rendered PNG, camera PNG, raw LiDAR CSV, and structured JSON with validity, route, boundary, timing, and detections. Write failures propagate as exceptions.
 
@@ -234,3 +234,17 @@ Detector boxes are not painted over an unrelated newer image; the display report
 The private runtime's CMake recipe derives the upstream C++ source list, prepares two delegate wrappers against the installed public TFLite API, generates FlatBuffer and firmware headers, and links TensorFlow Lite, USB, FlatBuffers, and Abseil. Adjusted wrapper copies stay in the build directory; upstream source files remain intact. Required symbols must resolve at link time.
 
 The [testing guide](TESTING.md) describes each test file and the difference between desktop verification, target-header compilation checks, and real hardware execution.
+
+## 13. Measured camera-row calibration — `src/calibration.*`
+
+`calibration.h` defines the 0.4064 m horizontal camera reference, 0.028 m camera-center height, twenty-pair stability window, individual observation records, and aggregated poses. Distance and height are user-measured setup geometry shown in the capture window and recorded in both saved artifacts. They never replace or correct a LiDAR surface range; actual image/bearing alignment comes from new captures at that mounted height.
+
+`calibration_capture_config()` widens diagnostic metric/image bounds so the nearby figure can be observed before new anchors exist. `run_calibration()` opens the real sensor service and a separate capture window without a Coral instance. The ordinary core supplies candidate markers and clusters, but its automatic bearing association is ignored for capture. A mouse click chooses a surface position; subsequent samples require exactly one nearby cluster, one image marker, fresh receive-time pairing, and distinct camera/scan identities. No start command is sent to the robot.
+
+`summarize_calibration()` checks finite data, at least twenty observations, pixel spread, metric spread, and angular consistency. Pixel/range values use arithmetic means; raw bearings use a circular mean to handle zero-degree wraparound. Pressing Space commits the stable aggregate for CENTER, LEFT, then RIGHT and stores a diagnostic camera/scan snapshot. Each placement requires a new explicit selection.
+
+`fit_calibration()` defines LiDAR forward from the measured center bearing. The two side bearings are expressed relative to that direction, then paired with measured image columns. It rejects incomplete or swapped placements, inadequate anchor spacing, and excessive forward-depth differences. It preserves robot geometry and the selected boundary while extending observation bounds for the measured nearer row and marker size.
+
+Accepting the third pose automatically fits, saves, and activates the calibration. `save_calibration()` stages the configuration and numeric `.measurements.json` report beside their destinations, validates the staged configuration through the production reader, retains backups, and publishes complete files by rename. Cleanup removes only temporary files. `activate_calibration()` validates the published configuration, stores a project-relative path in `active_calibration.json`, and publishes that preference through the same backup/rename mechanism. The UI reports success only after both operations complete. S retries a failure while preserving the measured poses; R starts over. Existing output filenames can be reused.
+
+Explicit `--config` bypasses saved selection even when the active record is invalid. Automatic startup validates the selected calibration and never silently falls back from corrupt or missing active data. Boundary preferences are loaded beside the resolved calibration file. The capture window's scope guard handles close-button cancellation, and sensor ownership stops acquisition on every exit path. The [physical walkthrough](CALIBRATION.md) describes ruler placement and subsequent delivery validation.

@@ -86,7 +86,18 @@ int main() {
                 }
                 ++checked; // Count this placement only after all returned geometry passes independent checks.
             }
-        std::cout << "Planner tests passed: direct, detour, blocked, occupied endpoints, "
+        for (double selected : {.03, .10}) { // Exercise both supported radii through the real planner, independently of slider labels.
+            c.boundary_radius = selected; // Override the nominal footprint sum with the selected total exclusion radius.
+            XY side{selected + .022, .60}; // Leave room for the planner's 2 cm preferred padding as well as mandatory clearance.
+            require(core_plan(&c, c.start, c.goal, &side, 1, 0, path, 128) == 2,
+                    "Selected radius was inflated or ignored"); // A clear direct path must stay direct without silently restoring the nominal radius.
+            n = core_plan(&c, c.start, c.goal, &centre, 1, 0, path, 128); // Place the prop on the centerline to require an actual detour at this radius.
+            require(n > 2, "Endpoint radius failed to route around central obstacle"); // Both endpoint settings must remain functional collision constraints.
+            for (int i = 1; i < n; ++i) // Independently check every segment of the resulting route.
+                require(distance_to_segment(path[i - 1], path[i], centre) > selected,
+                        "Route violates selected exclusion radius"); // Validate geometry rather than trusting the reported radius alone.
+        }
+        std::cout << "Planner tests passed: direct, detour, blocked, occupied endpoints, 3/10 cm boundaries, "
                   << checked << " obstacle positions\n";
         return 0;
     } catch (const std::exception &e) {

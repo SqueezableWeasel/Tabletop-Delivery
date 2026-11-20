@@ -27,7 +27,7 @@ struct Harness { // Own an isolated core and explicit simulated clock for each b
     int sequence = 0; // Count synthetic observations so acquisition confirmation sees distinct scans.
     Frame f; // Hold the latest synthetic image, which tests can deliberately leave stale or replace independently.
     Scan s; // Hold the latest synthetic scan for normal updates or controlled dropout/ambiguity scenarios.
-    Harness() {
+    explicit Harness(Config config = default_config()) : c(config) { // Allow a scenario to select motion settings before the core's member initializer copies them.
         expect(bool(core), "core_create"); // Require successful engine construction before any scenario exercises the public API.
     }
     void update(Control ctl = {}) { // Step with the current observations and supplied command without advancing the synthetic clock.
@@ -63,6 +63,25 @@ int main() {
             h.acquire({-.15, .63}); // Confirm a figure left of the centerline to test camera-bearing conversion and metric sign.
             expect(distance(h.r.xy, {-.15, .63}) < .001, "wrong figure position"); // Verify fused position is within 1 mm of the synthetic metric target.
             expect(h.r.groups[h.r.selected].count == 4, "return count"); // Verify all four synthetic returns support the selected cluster.
+        });
+        test("robot pacing preserves tracking cadence and pause", [] { // Measure one second of actual travel at default and full pacing, then verify pause remains immediate.
+            for (double scale : {.8, 1.}) { // Exercise the slower default and an explicit full-speed selection independently.
+                Config c = default_config(); // Keep the same geometry, tracking settings, and nominal speed for both runs.
+                c.speed_scale = scale; // Change only virtual movement pacing; synthetic observation cadence stays at 20 Hz.
+                Harness h(c); // Construct the engine with the selected pacing fraction.
+                h.step({.15, .63}, TOGGLE_RUN); // Place the figure beside the direct route and request movement.
+                for (int i = 0; i < 20; ++i) // Allow initial tracking confirmation and the recovery settling interval to finish.
+                    h.step(); // Supply one fresh camera/scan pair every 50 ms.
+                XY before = h.r.robot; // Measure from an already-moving position so startup delays do not enter the speed check.
+                for (int i = 0; i < 20; ++i) // Measure displacement across exactly one second of sensor time.
+                    h.step(); // Keep the route clear and the figure stationary during measurement.
+                expect(std::abs(distance(before, h.r.robot) - (scale == .8 ? .0224 : .028)) < 1e-9,
+                       "wrong paced travel distance"); // Check measured metric displacement against the requested physical rates.
+                expect(h.r.track_status == TRACKING && h.r.robot_status == DRIVING, "pacing interrupted tracking"); // Slower motion must not delay or invalidate perception.
+                before = h.r.robot; // Retain the last moving pose to check same-iteration pause behavior.
+                h.step({.15, .63}, TOGGLE_RUN); // Request pause while valid sensing continues at its normal cadence.
+                expect(h.r.robot_status == PAUSED && distance(before, h.r.robot) < 1e-12, "paced pause moved"); // A pause must consume no motion budget at either pace.
+            }
         });
         test("direct delivery latches", [] { // Independent behavior scenario: direct delivery latches.
             Harness h; // Create fresh perception, route, and semantic-latch state for this independent scenario.
@@ -284,7 +303,7 @@ int main() {
         });
         test("live boundary expansion holds and shrinking resumes without reset", [] { // Independent behavior scenario: live boundary expansion holds and shrinking resumes without reset.
             Harness h; // Create fresh perception, route, and semantic-latch state for this independent scenario.
-            const XY figure{.08, .52}; // Place a prop near the route so expanding its boundary can overlap the robot.
+            const XY figure{.05, .50}; // Keep the near-route prop within 9 cm of the depot so a supported 1 cm expansion can overlap it.
             h.step(figure, TOGGLE_RUN); // Start delivery with this near-route figure placement.
             for (int i = 0; i < 20; ++i)
                 h.step(figure); // Maintain a consistent near-route observation while testing boundary changes.
@@ -314,7 +333,7 @@ int main() {
                 h.step(); // Advance one fresh observation at the default clear-side position.
             h.step({.15, .63}, TOGGLE_RUN); // Toggle start/pause with the figure beside the route; the current run state selects the action.
             const XY pose = h.r.robot; // Save the exact robot pose before a live boundary mutation or persistent hold check.
-            expect(core_set_boundary(h.core.get(), .12) == 0, "paused boundary rejected"); // Edit a paused delivery's boundary without sending any run-toggle command.
+            expect(core_set_boundary(h.core.get(), .10) == 0, "paused boundary rejected"); // Edit a paused delivery's boundary at the supported upper endpoint without a run-toggle command.
             h.step(); // Advance one fresh observation at the default clear-side position.
             expect(h.r.robot_status == PAUSED && distance(pose, h.r.robot) == 0,
                    "boundary resumed paused robot"); // A user pause preserves pose despite ongoing fresh observations.
@@ -337,16 +356,17 @@ int main() {
             Harness h; // Create fresh perception, route, and semantic-latch state for this independent scenario.
             h.acquire(); // Establish a valid track before deliberately changing timing or input validity.
             const double old = h.r.obstacle_radius; // Capture the valid boundary before attempting invalid updates.
-            for (double radius : {-.1, .001, std::numeric_limits<double>::quiet_NaN(),
+            for (double radius : {-.1, 0., .029999, .100001, .2, std::numeric_limits<double>::quiet_NaN(),
                                   std::numeric_limits<double>::infinity()}) // Exercise negative, undersized, NaN, and infinite radius rejection.
                 expect(core_set_boundary(h.core.get(), radius) != 0, "invalid radius accepted"); // Invalid values must fail before mutating the existing geometry.
             expect(core_set_boundary(nullptr, .1) != 0, "null engine accepted"); // A null engine handle must be rejected without dereferencing it.
             h.update(); // Evaluate the current staged data without automatically refreshing either sensor.
             expect(h.r.obstacle_radius == old, "invalid radius changed geometry"); // Rejected updates must leave the previously valid radius unchanged.
-            const double minimum = h.c.figure_radius + h.c.robot_radius; // Compute the smallest physically admissible combined radius with zero extra margin.
-            expect(core_set_boundary(h.core.get(), minimum) == 0, "minimum radius rejected"); // The exact combined body radii must remain a valid boundary setting.
-            h.update(); // Evaluate the current staged data without automatically refreshing either sensor.
-            expect(std::abs(h.r.obstacle_radius - minimum) < 1e-12, "minimum radius not applied"); // Verify zero-margin boundary application without numerical drift.
+            for (double radius : {.03, .10}) { // Both inclusive endpoints must work even when smaller than the nominal body-radius sum.
+                expect(core_set_boundary(h.core.get(), radius) == 0, "endpoint radius rejected"); // Select the endpoint through the public API used by the live UI.
+                h.update(); // Evaluate the unchanged observations without needing a new scan to publish geometry.
+                expect(std::abs(h.r.obstacle_radius - radius) < 1e-12, "endpoint radius not applied"); // Verify the result reports the requested radius exactly.
+            }
         });
         test("nearest receive pairing and Coral freshness", [] { // Independent behavior scenario: nearest receive pairing and Coral freshness.
             Inputs in; // Build an explicit receive-time history independently of hardware acquisition.

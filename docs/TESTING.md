@@ -28,13 +28,14 @@ For the Pi, follow the root README and run `bash build_pi.sh`. The script builds
 | CTest entry | Source | What it checks |
 | --- | --- | --- |
 | `planner` | `tests/planner_test.cpp` | Direct paths, detours, blocked passages, occupied endpoints, and 252 obstacle positions; validates each returned segment. |
-| `runtime` | `tests/runtime_test.cpp` | 21 behavior cases covering segmentation/fusion, movement, loss/staleness, ambiguity, sign latching, duplicate inference, stalls, jitter, raw intrusion, heading limits, and boundary changes. |
+| `runtime` | `tests/runtime_test.cpp` | 22 behavior cases covering segmentation/fusion, measured travel speed and pause at different pacing fractions, movement, loss/staleness, ambiguity, sign latching, duplicate inference, stalls, jitter, raw intrusion, heading limits, and boundary changes. |
 | `model` | `tests/model_test.cpp` | Rejects non-model input, invalid offsets, and an operator name appearing only in unrelated data. Optional CLI argument checks a real compiled model. |
-| `config` | `tests/config_test.cpp` | Configuration roundtrip and rejection; saved boundary load/save and preservation of calibration; rendering without a window. |
+| `config` | `tests/config_test.cpp` | Configuration roundtrip and rejection; omitted pacing defaults, custom pacing persistence, repeated saves without compounding speed; boundary persistence at 3, 7.2, and 10 cm; rejection outside the limits without mutation; keyboard/button and mouse request clamping; preservation of calibration; rendering without a window. |
+| `calibration` | `tests/calibration_test.cpp` | Stable measured poses, angular wraparound, sensor-origin separation, saved 16-inch reference and 28 mm camera height, repeated saves/backups, default and custom activation, explicit override, failed-save preservation, invalid active-record rejection, closer-row tracking, and rendering. Synthetic evidence does not certify physical placement. |
 | `camera_controls` | `tests/camera_controls_test.cpp` | Actual libcamera storage type, element count, byte length, lifetime, and typed retrieval for frame duration. Hardware-enabled builds only; no device is opened. |
 | `app_help` | Application CLI | Help exits successfully without loading devices. |
 | `app_demo` | Application CLI | Bounded headless simulation using an explicit configuration. |
-| `app_resources` | `tests/resource_paths_test.cmake` | Launch from an isolated directory with local config, save a final snapshot, and reject a missing explicit config. |
+| `app_resources` | `tests/resource_paths_test.cmake` | Launch from isolated directories, save a final snapshot, select active calibration without --config and apply default pacing when omitted, honor explicit overrides, and reject missing explicit or active configurations. |
 
 The core-only profile contains three entries, the desktop application seven, and the hardware application eight. Runtime behavior cases are subtests within the `runtime` entry.
 
@@ -60,13 +61,13 @@ That parser check does not invoke the TPU. The inference check below does.
 Verification performed on 20 November 2026:
 
 - Compiled the complete desktop application and tests using MSVC and OpenCV 4.10.
-- Passed all seven desktop CTest entries, including 21 runtime cases and the 252-position planner sweep.
+- Passed all eight desktop CTest entries, including measured calibration validation, 22 runtime cases, and the 252-position planner sweep.
 - Passed ARM64 compiler checks for sensor, Coral, main-loop, display, configuration, core, and camera-control-test sources against the available Pi headers.
-- Ran a bounded 20-second simulation and inspected its final snapshot and state transitions.
-- Confirmed that relocating explanations to trailing comments preserves the C++ token streams in all 21 source/header files, the executable command text in all eight shell/CMake files, every explanation's text, and the configuration values.
+- Ran a bounded 30-second simulation and inspected its final snapshot and state transitions.
+- Inspected the calibration capture preview and verified that saved settings preserve distinct camera and LiDAR distance references.
 - Checked local documentation links, code formatting, shell helper paths, and archive contents.
 
-These checks do not execute physical Pi camera buffers, LiDAR scans, USB inference, or Linux build/download scripts for this package. Complete the hardware acceptance checks on the target Pi. The included calibration is specific to the reference mount. No measured end-to-end frame-rate guarantee, latency distribution, or CPU-versus-TPU speedup is asserted.
+These checks do not execute physical Pi camera buffers, LiDAR scans, USB inference, or Linux build/download scripts for this package. Complete the hardware acceptance checks on the target Pi, including the three physical captures in the [16-inch calibration walkthrough](CALIBRATION.md). The included seed anchors are not a measured calibration of a new camera-row placement. No measured end-to-end frame-rate guarantee, latency distribution, or CPU-versus-TPU speedup is asserted.
 
 ## Maintaining the code
 

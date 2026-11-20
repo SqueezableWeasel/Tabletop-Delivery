@@ -25,10 +25,10 @@ add_test(NAME model COMMAND model_test) # Register the parser's malformed/model-
 if(TABLETOP_BUILD_APP) # Add OpenCV application/configuration/presentation targets only when requested.
   find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc imgcodecs highgui) # Presentation/configuration layer: OpenCV is shared by the app and its tests. Require OpenCV's matrix, image-processing, image-codec, and GUI components.
   find_package(Threads REQUIRED) # Discover the platform's thread library and compiler/linker requirements.
-  add_library(tabletop_ui STATIC src/config.cpp src/view.cpp) # Share configuration and presentation implementation between the app and headless tests.
+  add_library(tabletop_ui STATIC src/config.cpp src/view.cpp src/calibration_math.cpp) # Share configuration, measured calibration fitting, and presentation helpers with headless tests.
   target_include_directories(tabletop_ui PUBLIC ${OpenCV_INCLUDE_DIRS}) # Export OpenCV include paths required by the public application interfaces.
   target_link_libraries(tabletop_ui PUBLIC tabletop_core ${OpenCV_LIBS}) # Propagate core and OpenCV libraries to application/test consumers.
-  add_executable(tabletop_delivery src/main.cpp) # Build the coordinator and later attach the selected hardware or desktop backend.
+  add_executable(tabletop_delivery src/main.cpp src/calibration.cpp) # Build delivery coordination and interactive calibration with the selected hardware backend.
   target_link_libraries(tabletop_delivery PRIVATE tabletop_ui Threads::Threads) # Link presentation, core, and platform thread support into the application.
   if(TABLETOP_HARDWARE) # Select live camera/LiDAR/inference implementation and its platform dependencies.
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux") # Live backends are Linux-only. TensorFlow Lite can be discovered through pkg-config or explicit header/library locations supplied to CMake. Reject non-Linux targets for code that depends on Linux devices and dynamic loading.
@@ -60,6 +60,9 @@ if(TABLETOP_BUILD_APP) # Add OpenCV application/configuration/presentation targe
   add_executable(config_test tests/config_test.cpp) # Build real JSON roundtrip, validation, boundary persistence, and headless rendering checks.
   target_link_libraries(config_test PRIVATE tabletop_ui) # Reuse the production configuration and rendering code in the test executable.
   add_test(NAME config COMMAND config_test "${CMAKE_CURRENT_SOURCE_DIR}/delivery_config.json") # Test the repository's supplied configuration using an explicit source path.
+  add_executable(calibration_test tests/calibration_test.cpp src/calibration.cpp src/no_hardware.cpp) # Test measured fitting and rendering with rejecting device stubs; no physical calibration is claimed by this test.
+  target_link_libraries(calibration_test PRIVATE tabletop_ui) # Exercise production fitting, persistence, and the capture display in memory.
+  add_test(NAME calibration COMMAND calibration_test) # Check sensor-origin separation, stable poses, invalid capture rejection, and configuration roundtrip.
   add_test(NAME app_help COMMAND tabletop_delivery --help) # Verify that usage exits successfully without opening hardware or requiring a configuration file.
   add_test(NAME app_demo COMMAND tabletop_delivery --demo --headless --seconds 1 --config "${CMAKE_CURRENT_SOURCE_DIR}/delivery_config.json" --output "${CMAKE_CURRENT_BINARY_DIR}/test_runs") # Exercise one second of bounded headless simulation with explicit configuration and output paths.
   add_test(NAME app_resources COMMAND "${CMAKE_COMMAND}" # Exercise local-resource startup independently from this source directory. Run the standalone-resource and missing-config checks through a separate CMake test script.

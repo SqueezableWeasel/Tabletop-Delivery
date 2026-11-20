@@ -15,11 +15,11 @@ namespace tabletop {
 Config load_config(const std::filesystem::path &path); // Load and validate a complete experiment; throws with a field-specific error.
 void overlay_tracking(Config &config, const std::filesystem::path &path); // Apply a caller-selected tracking section while preserving robot geometry.
 void validate_config(const Config &config); // Throw if any supported field type, range, or cross-field geometry invariant is invalid.
-void save_config(const Config &config, const std::filesystem::path &path); // Serialize the effective operational settings for reproducible run diagnostics.
+void save_config(const Config &config, const std::filesystem::path &path, double calibration_camera_distance_m = 0, double calibration_camera_height_m = 0); // Serialize effective settings and optionally record the horizontal camera reference and lens-center height for a newly captured calibration.
 bool load_boundary_setting(Config &config, const std::filesystem::path &path); // Return false when absent; invalid sidecars throw without changing Config.
 void save_boundary_setting(const Config &config, const std::filesystem::path &path); // Save only the selected total figure exclusion radius and its sidecar schema version.
 struct BoundaryUi { // Widget state: callbacks post atomics, the main thread applies and saves values. notice is owned by the application/render thread, not written by callbacks.
-    int minimum_mm, maximum_mm; // Slider limits in integer millimeters; the minimum preserves both physical body radii.
+    int minimum_mm, maximum_mm; // Inclusive 30–100 mm limits shared by the slider, buttons, and keyboard requests.
     std::atomic<int> current_mm, requested_mm; // Applied and requested radii are separate so callbacks never mutate engine state directly.
     std::atomic<bool> save_requested{false}, dragging{false}; // One-shot save request and current mouse-drag state shared with the UI callbacks.
     std::string notice = "B or Save to remember"; // Main/render-thread-owned text indicates whether the applied boundary has been saved.

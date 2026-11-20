@@ -65,10 +65,13 @@
     "trail_s": 5.0
   },
   "reference": {
-    "figure_base_centre_distance_m": 0.6096,
+    "camera_to_figure_center_m": 0.4064,
+    "camera_center_height_m": 0.028,
+    "distance_origin": "Camera lens; horizontal forward distance to the figure center on the tabletop",
     "scan_window_height_m": 0.045,
-    "calibration": "Three static blue-marker captures at approximately the same forward distance. Local bearing association, not full camera calibration.",
-    "range_note": "Report observed LiDAR surfaces. Do not subtract a bias to force a match to the base-centre measurement.",
+    "calibration": "Run --calibrate to replace the seed anchors with measured center, left, and right captures on the 16-inch camera row. Local bearing association, not full camera calibration.",
+    "calibration_status": "New measured captures are required at the reference distance",
+    "range_note": "Report observed LiDAR surfaces from the LiDAR origin. The camera-to-figure-center reference does not apply a range bias or scaling.",
     "roi_note": "Configured tracking area, not surveyed table edges or a clearance map."
   },
   "robot": {
@@ -79,7 +82,9 @@
     "robot_radius": 0.022,
     "figure_radius": 0.045,
     "margin": 0.005,
+    "boundary_radius": 0,
     "speed": 0.028,
+    "speed_scale": 0.8,
     "yield_s": 1.0,
     "grid_m": 0.01,
     "start": [

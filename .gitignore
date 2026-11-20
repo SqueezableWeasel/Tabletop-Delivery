@@ -6,6 +6,10 @@
 
 # Run data, local preferences, and diagnostics
 /delivery_runs/
+/calibration_*.json
+/active_calibration.json
+*.json.backup.*
+*.json.pending.*
 *.boundary.json
 *.log
 *.part

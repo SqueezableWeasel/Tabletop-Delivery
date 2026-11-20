@@ -29,6 +29,9 @@ JSON cannot contain comments. Every configuration field is documented separately
 | [src/coral.cpp](../src/coral.cpp) | The single pending-frame slot, worker wakeup, immutable source ownership, result publication, and shutdown. |
 | [src/view.cpp](../src/view.cpp) | Metric-to-pixel transforms, valid-state overlays, slider requests, and diagnostic output. |
 | [src/config.cpp](../src/config.cpp) | Checked numeric parsing, cross-field validation, explicit overlays, and radius-only persistence. |
+| [src/calibration.h](../src/calibration.h) | Sixteen-inch horizontal reference, 28 mm camera-center height, paired-sample and pose contracts, and capture/fit/persistence interfaces. |
+| [src/calibration_math.cpp](../src/calibration_math.cpp) | Stability checks, circular bearing averages, ordered measured anchors, observation-region adaptation, and separate configuration output. |
+| [src/calibration.cpp](../src/calibration.cpp) | Live cluster selection, fresh distinct-pair collection, three physical placements, capture-window rendering, and explicit saving. |
 | [tests/runtime_test.cpp](../tests/runtime_test.cpp) | Deterministic clock advancement, sensor fixtures, scenario setup, and externally visible movement/hold assertions. |
 
 The [code walkthrough](CODE_GUIDE.md) explains all modules and their relationships. The [test inventory](TESTING.md) identifies the remaining test files and their scope.
@@ -45,7 +48,7 @@ The [code walkthrough](CODE_GUIDE.md) explains all modules and their relationshi
 
 **Validity and bounds.** Counts identify the valid prefixes of fixed-capacity arrays. Negative sequence or selection values represent missing observations. A stored coordinate is not necessarily currently valid: consumers must inspect its tracking/selection status. Comments around early exits describe why an observation cannot authorize movement.
 
-**Geometry.** The figure boundary represents the figure radius plus robot radius plus extra margin. Planning may prefer additional clearance, but movement is checked against the mandatory boundary. Both raw and filtered figure positions constrain motion. The on-screen rectangular robot artwork does not replace the circular collision footprint.
+**Geometry.** The figure boundary is the selected total exclusion radius, constrained to 3–10 cm. Without an explicit selection, it starts at the nominal figure radius plus robot radius plus extra margin. Live changes update the total independently of those nominal settings. Planning may prefer additional clearance, but movement is checked against the mandatory boundary. Both raw and filtered figure positions constrain motion. The on-screen rectangular robot artwork does not replace the circular collision footprint.
 
 ## Keeping explanations accurate
 

@@ -48,7 +48,8 @@ Config default_config() { // Initialize every scalar/array with the reference ri
     c.robot_radius = .022; // Circular virtual robot footprint radius used for collision checking, in meters.
     c.figure_radius = .045; // Assumed figure footprint radius used by this tabletop model, in meters.
     c.margin = .005; // Additional nonnegative clearance beyond both body radii, in meters.
-    c.speed = .028; // Virtual robot travel speed, in meters per second.
+    c.boundary_radius = 0; // Start at the nominal 7.2 cm sum until a live or saved total-radius selection overrides it.
+    c.speed = .028; // Nominal virtual travel speed in meters per second; Config's 0.8 speed scale gives 0.0224 m/s of actual motion.
     c.yield_s = 1; // Wait before attempting a detour around a persistent obstruction, in seconds.
     c.grid_m = .01; // A* search-grid spacing, in meters; continuous edge checks still guard movement.
     c.start = {0, .435}; // Exact depot coordinate [right,forward], in meters.
